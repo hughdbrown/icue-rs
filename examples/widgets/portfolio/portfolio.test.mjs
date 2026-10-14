@@ -169,6 +169,7 @@ function makeWidgetEnv() {
 	};
 
 	const timers = [];
+	const timeouts = [];
 	const context = {
 		console,
 		setInterval: (fn, ms) => {
@@ -177,6 +178,12 @@ function makeWidgetEnv() {
 			return id;
 		},
 		clearInterval: (id) => clearInterval(id),
+		setTimeout: (fn, ms) => {
+			const id = setTimeout(fn, ms);
+			timeouts.push(id);
+			return id;
+		},
+		clearTimeout: (id) => clearTimeout(id),
 		localStorage,
 		fetch,
 		document,
@@ -201,7 +208,9 @@ function makeWidgetEnv() {
 
 	function clear() {
 		for (const id of timers) clearInterval(id);
+		for (const id of timeouts) clearTimeout(id);
 		timers.length = 0;
+		timeouts.length = 0;
 	}
 
 	return {

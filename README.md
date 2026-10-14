@@ -50,6 +50,7 @@ cargo check --all-targets
 cargo test --workspace
 cargo clippy --all-targets -- -D warnings
 node --test crates/widget-runtime/shim/
+node --test examples/widgets/portfolio/
 ```
 
 | Path | Contents |
