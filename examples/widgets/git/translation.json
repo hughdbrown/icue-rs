@@ -1,0 +1,14 @@
+{
+	"en": {
+		"translation": {
+			"Git Repository": "Git Repository",
+			"Repository folder": "Repository folder",
+			"Repository": "Repository",
+			"Appearance": "Appearance",
+			"Text Color": "Text Color",
+			"Accent Color": "Accent Color",
+			"Background Color": "Background Color",
+			"Reads .git/HEAD, config, refs and reflogs; nothing is written.": "Reads .git/HEAD, config, refs and reflogs; nothing is written."
+		}
+	}
+}

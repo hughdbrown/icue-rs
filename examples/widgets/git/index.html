@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>tr('Git Repository')</title>
+		<link rel="icon" type="image/svg+xml" href="resources/icon.svg" />
+		<meta name="x-icue-property" content="repoPath" data-label="tr('Repository folder')" data-type="textfield" data-default="''" />
+		<meta name="x-icue-property" content="textColor" data-label="tr('Text Color')" data-type="color" data-default="'#E8ECF2'" />
+		<meta name="x-icue-property" content="accentColor" data-label="tr('Accent Color')" data-type="color" data-default="'#F05133'" />
+		<meta name="x-icue-property" content="backgroundColor" data-label="tr('Background Color')" data-type="color" data-default="'#14161B'" />
+		<script type="application/json" id="x-icue-groups">
+			[
+				{ "title": "tr('Repository')", "properties": ["repoPath"], "info": "tr('Reads .git/HEAD, config, refs and reflogs; nothing is written.')" },
+				{ "title": "tr('Appearance')", "properties": ["textColor", "accentColor", "backgroundColor"] }
+			]
+		</script>
+		<link rel="stylesheet" href="styles/git.css" />
+	</head>
+	<body>
+		<main id="repo" hidden>
+			<header>
+				<div class="title">
+					<div id="name"></div>
+					<div id="remote"></div>
+				</div>
+				<div class="state">
+					<span id="branch"></span>
+					<span id="sha"></span>
+					<span id="sync" class="badge" hidden></span>
+				</div>
+			</header>
+			<section id="latest">
+				<span id="last"></span>
+				<span id="last-age"></span>
+			</section>
+			<ol id="activity"></ol>
+		</main>
+		<section id="message">
+			<div id="message-title">Starting…</div>
+			<div id="message-detail"></div>
+		</section>
+		<script src="scripts/git-model.js"></script>
+		<script src="scripts/git.js"></script>
+	</body>
+</html>

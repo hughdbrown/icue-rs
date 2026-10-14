@@ -1,0 +1,15 @@
+{
+	"author": "EdgeHost",
+	"id": "dev.edgehost.git",
+	"name": "Git Repository",
+	"description": "Branch, sync state with its upstream, and recent activity of a local git repository, updated live.",
+	"version": "0.1.0",
+	"preview_icon": "resources/icon.svg",
+	"min_app_version": "5.47",
+	"min_framework_version": "1.0.0",
+	"os": [{ "platform": "windows" }, { "platform": "mac" }],
+	"supported_devices": [{ "type": "dashboard_lcd" }],
+	"interactive": false,
+	"required_plugins": ["widgetbuilder.filesystemprovider:FileSystem:1.0"],
+	"permissions": [{ "type": "folder", "path": "<Home>" }]
+}
