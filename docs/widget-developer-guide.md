@@ -211,7 +211,8 @@ call `fetch(url)` normally.
 |---|---|
 | Matching | `domain` and its subdomains. `"any"` matches every non-loopback host. `port` is optional (default 443/80); loopback (`localhost`, `127.*`, `::1`) needs an explicit port. |
 | Methods | `GET` via `fetch()` only. XHR, WebSocket and non-GET requests are not routed and remain subject to CORS. |
-| Limits | 15 s timeout, 5 MiB response, redirects followed. |
+| Limits | 15 s timeout, 5 MiB response. |
+| Redirects | Followed up to 5 hops, and **each hop must also match your permissions**. A redirect to an undeclared host fails with status 403 and a message naming both URLs. Declare every host a redirect chain passes through. |
 | Response | Status, `Content-Type` and body pass through. `response.url` is the internal proxy URL. |
 | Undeclared domains | Not routed (normal browser behaviour). From milestone M3 the user approves declared permissions. |
 

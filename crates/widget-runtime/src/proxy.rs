@@ -7,6 +7,8 @@
 //! request here on a background thread.
 //!
 //! This is also the enforcement point for `url` permissions: only declared domains are fetched.
+//! Redirects are followed here, not by the HTTP client, so every hop is checked against the same
+//! permissions: a declared host cannot redirect a widget to an undeclared one.
 //! (Milestone M3 adds user approval of declared permissions.)
 
 use std::borrow::Cow;
@@ -23,6 +25,8 @@ use crate::assets::percent_decode;
 pub const ROUTE: &str = "/__edgehost/fetch";
 /// Largest response body passed back to a widget.
 const MAX_BODY_BYTES: u64 = 5 * 1024 * 1024;
+/// Redirect hops followed before giving up.
+const MAX_REDIRECTS: usize = 5;
 /// Whole-request timeout.
 const TIMEOUT: Duration = Duration::from_secs(15);
 /// Some APIs reject library user agents.
@@ -37,6 +41,14 @@ pub enum ProxyError {
     /// The widget did not declare the target domain.
     #[error("{0} is not in the widget's declared url permissions")]
     NotPermitted(String),
+    /// A permitted URL redirected to one the widget did not declare.
+    #[error("{from} redirects to {to}, which is not in the widget's declared url permissions")]
+    RedirectNotPermitted {
+        /// The URL that answered with the redirect.
+        from: String,
+        /// Where it pointed.
+        to: String,
+    },
     /// The request failed.
     #[error("fetching {url}: {message}")]
     Upstream {
@@ -51,7 +63,7 @@ impl ProxyError {
     fn status(&self) -> u16 {
         match self {
             Self::BadRequest => 400,
-            Self::NotPermitted(_) => 403,
+            Self::NotPermitted(_) | Self::RedirectNotPermitted { .. } => 403,
             Self::Upstream { .. } => 502,
         }
     }
@@ -134,18 +146,48 @@ fn fetch_permitted(
     permissions: &[UrlPermission],
     query: Option<&str>,
 ) -> Result<Response<Cow<'static, [u8]>>, ProxyError> {
-    let url = target_url(query).ok_or(ProxyError::BadRequest)?;
+    let mut url = target_url(query).ok_or(ProxyError::BadRequest)?;
     if !is_allowed(permissions, &url) {
         return Err(ProxyError::NotPermitted(url));
     }
+    let mut hops = 0;
+    let mut resp = loop {
+        let upstream = |message: String| ProxyError::Upstream {
+            url: url.clone(),
+            message,
+        };
+        let resp = agent()
+            .get(&url)
+            .call()
+            .map_err(|e| upstream(e.to_string()))?;
+        let status = resp.status().as_u16();
+        let location = resp
+            .headers()
+            .get(header::LOCATION)
+            .and_then(|v| v.to_str().ok());
+        let (true, Some(location)) = (is_redirect(status), location) else {
+            break resp;
+        };
+        let next = resolve_location(&url, location)
+            .ok_or_else(|| upstream(format!("unusable redirect location {location:?}")))?;
+        if !is_allowed(permissions, &next) {
+            return Err(ProxyError::RedirectNotPermitted {
+                from: url,
+                to: next,
+            });
+        }
+        hops += 1;
+        if hops > MAX_REDIRECTS {
+            return Err(upstream(format!(
+                "too many redirects (more than {MAX_REDIRECTS})"
+            )));
+        }
+        url = next;
+    };
     let upstream = |message: String| ProxyError::Upstream {
         url: url.clone(),
         message,
     };
-    let mut resp = agent()
-        .get(&url)
-        .call()
-        .map_err(|e| upstream(e.to_string()))?;
     let status = resp.status().as_u16();
     let content_type = resp
         .headers()
@@ -167,6 +209,41 @@ fn fetch_permitted(
         .map_err(|e| upstream(e.to_string()))
 }
 
+/// Statuses whose `Location` the proxy follows (as a GET, like browsers do for a GET).
+fn is_redirect(status: u16) -> bool {
+    matches!(status, 301 | 302 | 303 | 307 | 308)
+}
+
+/// `location` (absolute, scheme-relative, absolute-path or relative-path) resolved against `base`.
+/// `None` unless the result is an http(s) URL.
+fn resolve_location(base: &str, location: &str) -> Option<String> {
+    let location = location.trim();
+    let lower = location.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") {
+        return Some(location.to_owned());
+    }
+    let (scheme, rest) = base.split_once("://")?;
+    if let Some(after) = location.strip_prefix("//") {
+        return Some(format!("{scheme}://{after}"));
+    }
+    if location.contains(':') && !location.starts_with(['/', '.', '?', '#']) {
+        // Another scheme (javascript:, file:, …).
+        return None;
+    }
+    let authority = rest.split(['/', '?', '#']).next()?;
+    if location.starts_with('/') {
+        return Some(format!("{scheme}://{authority}{location}"));
+    }
+    let path = rest
+        .strip_prefix(authority)
+        .unwrap_or("")
+        .split(['?', '#'])
+        .next()
+        .unwrap_or("");
+    let dir = path.rfind('/').map_or("/", |i| &path[..=i]);
+    Some(format!("{scheme}://{authority}{dir}{location}"))
+}
+
 fn error_response(e: &ProxyError) -> Response<Cow<'static, [u8]>> {
     Response::builder()
         .status(e.status())
@@ -186,6 +263,8 @@ fn agent() -> &'static ureq::Agent {
             .tls_config(tls)
             .timeout_global(Some(TIMEOUT))
             .http_status_as_error(false)
+            // Redirects are followed in `fetch_permitted`, which checks each hop.
+            .max_redirects(0)
             .user_agent(USER_AGENT)
             .build()
             .new_agent()
@@ -247,6 +326,112 @@ mod tests {
         );
         assert_eq!(target_url(Some("url=javascript%3Aalert(1)")), None);
         assert_eq!(target_url(None), None);
+    }
+
+    /// An HTTP server on 127.0.0.1 answering each request with `response(path)`.
+    fn stub_server(response: impl Fn(&str) -> String + Send + 'static) -> u16 {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().take(16) {
+                let mut s = stream.unwrap();
+                let mut buf = [0_u8; 4096];
+                let n = s.read(&mut buf).unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]);
+                let path = request.split_whitespace().nth(1).unwrap_or("/").to_owned();
+                let _ = s.write_all(response(&path).as_bytes());
+            }
+        });
+        port
+    }
+
+    fn body(text: &str) -> String {
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}",
+            text.len()
+        )
+    }
+
+    fn redirect(location: &str) -> String {
+        format!(
+            "HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        )
+    }
+
+    fn fetch(
+        perms: &[UrlPermission],
+        url: &str,
+    ) -> Result<Response<Cow<'static, [u8]>>, ProxyError> {
+        let query = format!("url={}", url.replace(':', "%3A").replace('/', "%2F"));
+        fetch_permitted(perms, Some(&query))
+    }
+
+    fn local(port: u16) -> UrlPermission {
+        perm("127.0.0.1", Some(port))
+    }
+
+    #[test]
+    fn redirect_to_an_undeclared_host_is_refused() {
+        let secret = stub_server(|_| body("secret"));
+        let open = stub_server(move |_| redirect(&format!("http://127.0.0.1:{secret}/data")));
+        let err = fetch(&[local(open)], &format!("http://127.0.0.1:{open}/")).unwrap_err();
+        assert_eq!(err.status(), 403);
+        let text = err.to_string();
+        assert!(
+            text.contains(&format!("redirects to http://127.0.0.1:{secret}/data")),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn redirects_within_the_permissions_are_followed() {
+        let end = stub_server(|path| {
+            if path == "/final" {
+                body("done")
+            } else {
+                body("wrong path")
+            }
+        });
+        let start = stub_server(move |path| match path {
+            "/" => redirect("/next"), // relative
+            _ => redirect(&format!("http://127.0.0.1:{end}/final")),
+        });
+        let resp = fetch(
+            &[local(start), local(end)],
+            &format!("http://127.0.0.1:{start}/"),
+        )
+        .unwrap();
+        assert_eq!(resp.status(), 200);
+        assert_eq!(resp.body().as_ref(), b"done");
+
+        let looping = stub_server(|_| redirect("/again"));
+        let err = fetch(&[local(looping)], &format!("http://127.0.0.1:{looping}/")).unwrap_err();
+        assert!(err.to_string().contains("too many redirects"), "{err}");
+    }
+
+    #[test]
+    fn relative_locations_resolve_against_the_current_url() {
+        assert_eq!(
+            resolve_location("https://a.example/x/y?q", "/z").as_deref(),
+            Some("https://a.example/z")
+        );
+        assert_eq!(
+            resolve_location("https://a.example/x/y?q", "w").as_deref(),
+            Some("https://a.example/x/w")
+        );
+        assert_eq!(
+            resolve_location("https://a.example:8443/x", "//b.example/p").as_deref(),
+            Some("https://b.example/p")
+        );
+        assert_eq!(
+            resolve_location("http://a.example/", "https://c.example/").as_deref(),
+            Some("https://c.example/")
+        );
+        assert_eq!(
+            resolve_location("http://a.example/", "javascript:alert(1)"),
+            None
+        );
     }
 
     /// Real HTTPS request through the configured agent (`cargo test -- --ignored`).
