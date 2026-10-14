@@ -46,7 +46,7 @@ with `--common-dir`. Press Esc to close the borderless Edge window.
 ### Pages
 
 The EdgeHost app (`cargo run -p edgehost`) shows one page of widgets at a time. Add pages in
-**Configure Widgets…** (menu-bar icon) or with `edgectl layout add --page N`. To change the page:
+**Configure Widgets…** (menu-bar icon) or with `edgectl layout add --page N` (pages count from 1, as the configurator shows them). To change the page:
 
 - **Swipe** left (next) or right (previous) on the Edge: a quick horizontal drag of about 2 cm,
   anywhere on a widget or the background. Drags that start in a text field or slider, or on a part

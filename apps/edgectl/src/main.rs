@@ -115,9 +115,10 @@ enum LayoutCommand {
         /// Slot size: S, M, L or XL.
         #[arg(long, default_value = "S")]
         slot: Slot,
-        /// Page index (use the current page count to add a new page).
-        #[arg(long, default_value_t = 0)]
-        page: usize,
+        /// Page number, from 1 as `layout show` and the configurator count them (the page count
+        /// plus 1 adds a new page).
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
+        page: u32,
         /// Grid column (requires --row); default: first free position.
         #[arg(long, requires = "row")]
         col: Option<u32>,
@@ -452,8 +453,10 @@ fn layout(store: &Store, command: &LayoutCommand) -> Result<()> {
                 None => store.latest(widget)?,
             };
             let origin = col.zip(*row).map(|(col, row)| Cell { col, row });
+            // Layouts index pages from 0; people count from 1.
+            let index = usize::try_from(*page - 1).context("page number too large")?;
             let id = layout.add(
-                *page,
+                index,
                 widget.clone(),
                 installed.version.clone(),
                 *slot,
@@ -520,7 +523,7 @@ fn show_layout(store: &Store, layout: &edge_store::Layout) {
         println!("(empty: add widgets with `edgectl layout add <widget-id>`)");
     }
     for (p, page) in layout.pages.iter().enumerate() {
-        println!("page {p}:");
+        println!("page {}:", p + 1);
         for i in &page.instances {
             let state = if i.needs_evaluation() {
                 "defaults pending"

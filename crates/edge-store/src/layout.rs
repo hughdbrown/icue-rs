@@ -111,13 +111,19 @@ impl Instance {
     }
 }
 
-/// Errors editing a layout.
+/// Errors editing a layout. Fields hold zero-based page indices; messages number pages from 1,
+/// as the configurator, the menu and `edgectl` show them.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum LayoutError {
     /// Page index beyond the end (pages may only be appended one at a time).
-    #[error("page {page} does not exist (the layout has {pages} page(s); use {pages} to add one)")]
+    #[error(
+        "page {} does not exist (the layout has {}; page {} adds a new one)",
+        page + 1,
+        count_pages(*pages),
+        pages + 1
+    )]
     NoSuchPage {
-        /// Requested page.
+        /// Requested page (zero-based).
         page: usize,
         /// Number of pages.
         pages: usize,
@@ -136,11 +142,11 @@ pub enum LayoutError {
         other: String,
     },
     /// No free position on the page for the slot.
-    #[error("no room for a {slot} widget on page {page}")]
+    #[error("no room for a {slot} widget on page {}", page + 1)]
     NoRoom {
         /// Slot being placed.
         slot: Slot,
-        /// Page.
+        /// Page (zero-based).
         page: usize,
     },
     /// No instance id starts with the given text.
@@ -149,6 +155,15 @@ pub enum LayoutError {
     /// Several instance ids start with the given text.
     #[error("{0:?} matches more than one instance; give more characters")]
     AmbiguousInstance(String),
+}
+
+/// "1 page", "3 pages".
+fn count_pages(n: usize) -> String {
+    if n == 1 {
+        "1 page".to_owned()
+    } else {
+        format!("{n} pages")
+    }
 }
 
 impl Layout {
@@ -457,6 +472,22 @@ mod tests {
             l.add(3, id(), "1.0.0".into(), Slot::S, None),
             Err(LayoutError::NoSuchPage { .. })
         ));
+    }
+
+    #[test]
+    fn page_errors_count_pages_from_one() {
+        let mut l = Layout::default();
+        for page in 0..3 {
+            l.add(page, id(), "1".into(), Slot::XL, None).unwrap();
+        }
+        // The third page (index 2) is full: people see it as "Page 3".
+        let full = l.add(2, id(), "1".into(), Slot::S, None).unwrap_err();
+        assert_eq!(full.to_string(), "no room for a S widget on page 3");
+        let missing = l.add(5, id(), "1".into(), Slot::S, None).unwrap_err();
+        assert_eq!(
+            missing.to_string(),
+            "page 6 does not exist (the layout has 3 pages; page 4 adds a new one)"
+        );
     }
 
     #[test]
