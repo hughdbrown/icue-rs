@@ -85,7 +85,7 @@ struct Payload<'a> {
     props: Vec<PropPayload<'a>>,
     tr: BTreeMap<String, String>,
     modules: Vec<ModulePayload>,
-    plugins: Vec<String>,
+    plugins: Vec<PluginPayload>,
     escape_closes: bool,
     proxy: Vec<UrlPermission>,
     debug_input: bool,
@@ -98,6 +98,15 @@ struct PropPayload<'a> {
     default_expr: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     kind: Option<ControlKind>,
+}
+
+/// A `required_plugins` entry. Unavailable plugins carry no methods or signals.
+#[derive(Serialize)]
+struct PluginPayload {
+    name: String,
+    available: bool,
+    methods: &'static [&'static str],
+    signals: &'static [&'static str],
 }
 
 #[derive(Serialize)]
@@ -162,11 +171,27 @@ pub fn render(
             .collect(),
         tr: def.translations.table(&cfg.language),
         modules,
+        // Evaluate pages get no providers (their snapshots are a later milestone).
         plugins: def
             .manifest
             .required_plugins
             .iter()
-            .map(icuew_manifest::PluginRef::facade_name)
+            .map(
+                |wanted| match edge_plugins::facade(wanted).filter(|_| !evaluating) {
+                    Some(f) => PluginPayload {
+                        name: f.name,
+                        available: true,
+                        methods: f.methods,
+                        signals: f.signals,
+                    },
+                    None => PluginPayload {
+                        name: wanted.facade_name(),
+                        available: false,
+                        methods: &[],
+                        signals: &[],
+                    },
+                },
+            )
             .collect(),
         proxy: def.manifest.url_permissions(),
         debug_input: cfg.debug_input,
@@ -234,6 +259,29 @@ mod tests {
         let js = render(&def(), &cfg(), ShimMode::Evaluate).unwrap();
         assert!(js.contains(r#""mode":"evaluate","values":null"#));
         assert!(js.contains(r#""defaultExpr":"Greeting.defaultHeadline()""#));
+    }
+
+    #[test]
+    fn plugins_are_available_only_at_runtime() {
+        let mut d = def();
+        d.manifest.required_plugins = vec![
+            "widgetbuilder.filesystemprovider:FileSystem:1.0"
+                .parse()
+                .unwrap(),
+            "widgetbuilder.sensorsdataprovider:Sensors:1.0"
+                .parse()
+                .unwrap(),
+        ];
+        let values = BTreeMap::new();
+        let js = render(&d, &cfg(), ShimMode::Runtime(&values)).unwrap();
+        assert!(
+            js.contains(r#"{"name":"Filesystemprovider","available":true,"methods":["watchPath""#)
+        );
+        assert!(js.contains(
+            r#"{"name":"Sensorsdataprovider","available":false,"methods":[],"signals":[]}"#
+        ));
+        let js = render(&d, &cfg(), ShimMode::Evaluate).unwrap();
+        assert!(js.contains(r#"{"name":"Filesystemprovider","available":false"#));
     }
 
     #[test]

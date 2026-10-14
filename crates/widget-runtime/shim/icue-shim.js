@@ -4,8 +4,9 @@
 // globals iCUE documents for HTML widgets (Widget API 1.9.0):
 //   iCUE, device, uniqueId, one global per x-icue-property, tr(), window.plugins,
 //   iCUE_initialized, plugin<Module>_initialized, and the icueEvents lifecycle calls.
-// Plugins are not implemented yet (M3): their *_initialized flags stay false so widgets that
-// guard on them degrade instead of throwing ReferenceError.
+// Plugins EdgeHost provides get a window.plugins.<Facade> object whose methods call the host and
+// whose signals have connect/disconnect; the rest keep plugin<Facade>_initialized false so widgets
+// that guard on it degrade instead of throwing ReferenceError.
 //
 // The payload placeholder on the last line is replaced by Rust (widget_runtime::shim::render)
 // with script-safe JSON; it must appear exactly once in this file.
@@ -131,10 +132,91 @@
 	window.tr = (key) => Promise.resolve(trSync(key));
 	window.plugins = window.plugins || {};
 	window.iCUE_initialized = false;
-	for (const facade of P.plugins) {
-		window[`plugin${facade}_initialized`] = false;
-		console.warn(`plugin ${facade} is not available yet in EdgeHost`);
+	// ── Plugins ── calls and signals travel over the widget's own origin (widget_runtime::plugins).
+	const PLUGIN_ROUTE = "/__edgehost/plugin/";
+	const hostFetch = window.fetch ? window.fetch.bind(window) : null;
+	const getJson = async (path) => {
+		const response = await hostFetch(PLUGIN_ROUTE + path, { cache: "no-store" });
+		return response.json();
+	};
+	const available = P.plugins.filter((p) => p.available);
+	const signalHandlers = new Map(); // "Facade.signal" → Set of handlers
+	// Forget state left by a previous load of this page before the widget's first call.
+	const pluginsReady = available.length > 0 && hostFetch ? getJson("reset").then((r) => Number(r.seq) || 0) : Promise.resolve(0);
+	// Calls run one at a time, in order: clearPaths() then watchPath() must not be reordered.
+	let callChain = pluginsReady.catch(() => undefined);
+	for (const plugin of P.plugins) {
+		window[`plugin${plugin.name}_initialized`] = false;
+		if (!plugin.available) {
+			// Evaluate pages never get providers; only a shown widget needs to hear about it.
+			if (P.mode !== "evaluate") console.warn(`plugin ${plugin.name} is not available in EdgeHost`);
+			continue;
+		}
+		const facade = {};
+		for (const method of plugin.methods) {
+			facade[method] = (...args) => {
+				const query = `call?p=${encodeURIComponent(plugin.name)}&m=${encodeURIComponent(method)}&a=${encodeURIComponent(JSON.stringify(args))}`;
+				const result = callChain
+					.then(() => getJson(query))
+					.then((reply) => {
+						if (reply.error) throw new Error(`${plugin.name}.${method}: ${reply.error}`);
+						return reply.value;
+					})
+					.catch((e) => {
+						console.warn(fmt(e));
+						return undefined;
+					});
+				callChain = result;
+				return result;
+			};
+		}
+		for (const signal of plugin.signals) {
+			const handlers = new Set();
+			signalHandlers.set(`${plugin.name}.${signal}`, handlers);
+			facade[signal] = {
+				connect: (fn) => void (typeof fn === "function" && handlers.add(fn)),
+				disconnect: (fn) => void handlers.delete(fn),
+			};
+		}
+		window.plugins[plugin.name] = facade;
 	}
+	const dispatch = (event) => {
+		for (const fn of signalHandlers.get(`${event.plugin}.${event.signal}`) || []) {
+			try {
+				fn(...event.args);
+			} catch (e) {
+				console.error(`${event.plugin}.${event.signal} handler threw:`, e);
+			}
+		}
+	};
+	const pumpSignals = async () => {
+		let after = await pluginsReady;
+		for (;;) {
+			try {
+				const events = await getJson(`events?after=${after}`);
+				for (const event of events) {
+					after = Math.max(after, event.seq);
+					dispatch(event);
+				}
+			} catch (_) {
+				await new Promise((resolve) => setTimeout(resolve, 1000));
+			}
+		}
+	};
+	const startPlugins = async () => {
+		if (available.length === 0 || !hostFetch) return;
+		try {
+			await pluginsReady;
+		} catch (e) {
+			console.error(`plugins could not start: ${fmt(e)}`);
+			return;
+		}
+		void pumpSignals();
+		for (const plugin of available) {
+			window[`plugin${plugin.name}_initialized`] = true;
+			callHook(`plugin${plugin.name}Events`, "onInitialized");
+		}
+	};
 
 	// Attribute expressions see a synchronous tr(), as iCUE resolves them to plain strings.
 	const evaluate = (expr) => new Function("tr", `"use strict"; return (${expr});`)(trSync);
@@ -226,6 +308,7 @@
 			return;
 		}
 		await importModules();
+		await startPlugins();
 		window.iCUE_initialized = true;
 		callHook("icueEvents", "onICUEInitialized");
 		callHook("icueEvents", "onDataUpdated");

@@ -234,8 +234,13 @@ fn describe(def: &WidgetDef) {
         .collect();
     println!("  devices:      {}", devices.join(", "));
     for p in &m.required_plugins {
+        let status = if edge_plugins::facade(p).is_some() {
+            "provided"
+        } else {
+            "not available in EdgeHost"
+        };
         println!(
-            "  plugin:       {p}  → window.plugins.{} (not yet implemented)",
+            "  plugin:       {p}  → window.plugins.{} ({status})",
             p.facade_name()
         );
     }

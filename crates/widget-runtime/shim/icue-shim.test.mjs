@@ -39,7 +39,7 @@ const BASE = {
 	props: [{ name: "textColor" }, { name: "size" }, { name: "label" }, { name: "none" }],
 	tr: { Hello: "Hallo" },
 	modules: [],
-	plugins: ["Sensorsdataprovider"],
+	plugins: [{ name: "Sensorsdataprovider", available: false, methods: [], signals: [] }],
 	proxy: [],
 };
 
@@ -172,4 +172,68 @@ test("focusing a text field asks for the keyboard", () => {
 	listeners["window:focusin"]({ target: { tagName: "DIV" } });
 	listeners["window:focusin"]({ target: { tagName: "INPUT" } });
 	assert.deepEqual(plain(posted.filter((m) => m.k === "keyboard")), [{ k: "keyboard" }]);
+});
+
+test("available plugins get a facade: calls reach the host and signals reach handlers", async () => {
+	const requests = [];
+	let deliver; // resolves the pending events request
+	const replies = {
+		reset: () => ({ seq: 7 }),
+		call: () => ({ value: null }),
+		events: (url) =>
+			url.includes("after=7")
+				? new Promise((r) => (deliver = r))
+				: new Promise(() => {}), // later polls stay pending
+	};
+	const context = {
+		console: { log() {}, info() {}, warn() {}, error() {} },
+		document: { readyState: "loading", addEventListener: (t, f) => (context.ready = f) },
+		addEventListener() {},
+		ipc: { postMessage() {} },
+		setTimeout,
+		fetch: (url) => {
+			requests.push(url);
+			const route = url.replace("/__edgehost/plugin/", "").split("?")[0];
+			return Promise.resolve(replies[route](url)).then((body) => ({ json: () => body }));
+		},
+	};
+	context.window = context;
+	const payload = {
+		...BASE,
+		plugins: [
+			{ name: "Filesystemprovider", available: true, methods: ["watchPath"], signals: ["fileChanged"] },
+			{ name: "Sensorsdataprovider", available: false, methods: [], signals: [] },
+		],
+	};
+	vm.createContext(context);
+	vm.runInContext(SOURCE.replace("__PAYLOAD__", JSON.stringify(payload)), context);
+	vm.runInContext(
+		`globalThis.got = [];
+		 globalThis.order = [];
+		 pluginFilesystemproviderEvents = { onInitialized: () => order.push("plugin:" + pluginFilesystemprovider_initialized) };
+		 icueEvents = { onICUEInitialized: () => order.push("icue") };
+		 plugins.Filesystemprovider.fileChanged.connect((path, content) => got.push([path, content]));
+		 plugins.Filesystemprovider.watchPath("{Home}/repo/.git/HEAD");
+		 plugins.Filesystemprovider.watchPath("{Home}/repo/.git/config");`,
+		context,
+	);
+	assert.equal(context.pluginFilesystemprovider_initialized, false);
+	assert.equal(context.plugins.Sensorsdataprovider, undefined);
+	context.ready();
+	await new Promise((r) => setTimeout(r, 10));
+	assert.deepEqual(plain(context.order), ["plugin:true", "icue"]);
+	assert.equal(requests[0], "/__edgehost/plugin/reset");
+	assert.ok(
+		requests.includes(
+			"/__edgehost/plugin/call?p=Filesystemprovider&m=watchPath&a=" + encodeURIComponent(JSON.stringify(["{Home}/repo/.git/HEAD"])),
+		),
+		"calls made before boot wait for the reset, then go through",
+	);
+	const calls = requests.filter((u) => u.includes("/call?"));
+	assert.equal(calls.length, 2);
+	assert.ok(calls[0].includes("HEAD") && calls[1].includes("config"), "calls keep their order");
+	deliver([{ seq: 8, plugin: "Filesystemprovider", signal: "fileChanged", args: ["/r/.git/HEAD", "ref: refs/heads/main\n"] }]);
+	await new Promise((r) => setTimeout(r, 10));
+	assert.deepEqual(plain(context.got), [["/r/.git/HEAD", "ref: refs/heads/main\n"]]);
+	assert.ok(requests.some((u) => u.endsWith("events?after=8")), "the next poll starts after the delivered event");
 });

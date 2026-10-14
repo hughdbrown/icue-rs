@@ -17,6 +17,8 @@ use edge_layout::{
     Cell, DisplayChoice, Fit, Orientation, PxRect, Selection, Slot, fit_panel, select_display,
     slot_rect,
 };
+use edge_plugins::paths::Macros;
+use edge_plugins::{HostContext, PluginHost};
 use icuew_manifest::WidgetDef;
 use serde_json::Value;
 use tao::dpi::LogicalSize;
@@ -29,8 +31,8 @@ use wry::{Rect, WebView, WebViewBuilder};
 use crate::assets::{mime_for, read_asset, resolve};
 use crate::display::list_displays;
 use crate::platform;
-use crate::proxy;
 use crate::shim::{self, ShimConfig, ShimMode, TemperatureUnit};
+use crate::{plugins, proxy};
 
 /// URL scheme widgets are served from.
 const SCHEME: &str = "icuew";
@@ -350,6 +352,9 @@ impl Surface {
         let label = instance.def.manifest.id.to_string();
         let id = instance.id;
         let sink = Rc::clone(&self.sink);
+        // Only shown widgets get providers; evaluate views see every plugin as unavailable.
+        let plugin_host = visible.then(|| plugin_host(instance)).flatten();
+        let plugin_label = label.clone();
         let devtools = self.opts.devtools;
         let Self {
             window,
@@ -378,6 +383,14 @@ impl Surface {
                         uri.query().map(str::to_owned),
                         responder,
                     );
+                } else if let Some(route) = uri.path().strip_prefix(plugins::PREFIX) {
+                    plugins::handle(
+                        plugin_host.clone(),
+                        plugin_label.clone(),
+                        route.to_owned(),
+                        uri.query().map(str::to_owned),
+                        responder,
+                    );
                 } else {
                     responder.respond(serve(&serve_root, serve_common.as_deref(), uri.path()));
                 }
@@ -390,6 +403,22 @@ impl Surface {
             .with_url(format!("{SCHEME}://{}{path}", id.simple()));
         platform::attach(parent, window, builder).context("creating a widget view")
     }
+}
+
+/// Providers for `instance`'s supported `required_plugins`, if it has any.
+fn plugin_host(instance: &WidgetInstance) -> Option<Arc<PluginHost>> {
+    let Some(macros) = Macros::from_env() else {
+        eprintln!("warning: $HOME is not set; plugins are disabled");
+        return None;
+    };
+    let host = PluginHost::new(
+        &instance.def.manifest.required_plugins,
+        &HostContext {
+            macros,
+            path_permissions: instance.def.manifest.path_permissions(),
+        },
+    );
+    (!host.is_empty()).then(|| Arc::new(host))
 }
 
 fn logical_rect(origin: (f64, f64), size: (f64, f64)) -> Rect {
