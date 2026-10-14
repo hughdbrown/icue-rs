@@ -1,0 +1,5 @@
+allow-expect-in-tests = true
+allow-indexing-slicing-in-tests = true
+allow-unwrap-in-tests = true
+# Product and hardware names are prose, not code.
+doc-valid-idents = ["EdgeHost", "XENEON", "WebKit", "IndexedDB", ".."]

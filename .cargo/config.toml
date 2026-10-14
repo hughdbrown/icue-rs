@@ -1,0 +1,5 @@
+# Fast linking on Apple Silicon (brew install lld). If linking fails after an Xcode/macOS
+# update, upgrade lld first (`brew upgrade lld`); `RUSTFLAGS="" cargo build` bypasses it.
+# sccache is configured globally in ~/.cargo/config.toml.
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/bin/ld64.lld"]

@@ -1,0 +1,45 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/edge-layout",
+    "crates/icuew-manifest",
+]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+publish = false
+rust-version = "1.85"
+version = "0.1.0"
+
+[workspace.dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+edge-layout = { path = "crates/edge-layout" }
+icuew-manifest = { path = "crates/icuew-manifest" }
+scraper = "0.27"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tao = "0.37"
+tempfile = "3"
+thiserror = "2"
+uuid = { version = "1", features = ["v5"] }
+widget-runtime = { path = "crates/widget-runtime" }
+wry = "0.57"
+
+[workspace.lints.clippy]
+expect_used = "warn"
+indexing_slicing = "warn"
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+# Crate names already prefix most items (e.g. `edge_layout::LayoutError`); repeating is clearer.
+module_name_repetitions = "allow"
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+panic = "abort"
+strip = true
