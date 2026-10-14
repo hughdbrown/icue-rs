@@ -261,10 +261,18 @@ impl Inner {
                 .iter()
                 .any(|p| p == watched || Some(p.as_path()) == watched.parent())
         };
+        // The grant was checked at watchPath, but the path may since have become a symlink (or
+        // gained a symlinked parent) leading outside it. Check again before each re-read; what
+        // is no longer covered reads as missing, so the widget sees it removed.
+        let grants = &self.grants;
         let mut out = Vec::new();
         for (path, old) in files.iter_mut() {
             if touches(path) {
-                let new = read_text(path);
+                let new = if grants.allows(path) {
+                    read_text(path)
+                } else {
+                    None
+                };
                 file_signals(path, old.as_deref(), new.as_deref(), &mut out);
                 *old = new;
             }
@@ -274,7 +282,11 @@ impl Inner {
                 .iter()
                 .any(|p| p == folder || p.parent() == Some(folder))
             {
-                let new = list_folder(folder);
+                let new = if grants.allows(folder) {
+                    list_folder(folder)
+                } else {
+                    BTreeMap::new()
+                };
                 folder_signals(old, &new, &mut out);
                 *old = new;
             }
@@ -523,6 +535,36 @@ mod tests {
 
         fs::remove_file(&path).unwrap();
         assert_eq!(next(&rx, "fileRemoved")[0], path_value(&path));
+    }
+
+    #[test]
+    fn a_watched_file_swapped_for_a_symlink_out_of_the_grant_reads_as_removed() {
+        let (_tmp, root) = canonical_dir();
+        let granted = root.join("granted");
+        let outside = root.join("outside");
+        fs::create_dir_all(&granted).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("secret.txt"), "secret\n").unwrap();
+        let path = granted.join("note.txt");
+        fs::write(&path, "hello\n").unwrap();
+        let (fs_provider, rx) = provider(&granted);
+        fs_provider
+            .call("watchPath", &[Value::from("{Home}/note.txt")])
+            .unwrap();
+        assert_eq!(next(&rx, "fileChanged")[1], "hello\n");
+
+        // Swap the file for a symlink to the outside file, atomically.
+        let link = granted.join("note.link");
+        std::os::unix::fs::symlink(outside.join("secret.txt"), &link).unwrap();
+        fs::rename(&link, &path).unwrap();
+        assert_eq!(next(&rx, "fileRemoved")[0], path_value(&path));
+        std::thread::sleep(Duration::from_millis(500));
+        while let Ok((name, args)) = rx.try_recv() {
+            assert!(
+                !args.iter().any(|a| a.to_string().contains("secret")),
+                "{name} leaked the outside file: {args:?}"
+            );
+        }
     }
 
     #[test]
