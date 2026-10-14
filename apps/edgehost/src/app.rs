@@ -133,6 +133,7 @@ impl App {
         if let Some(menus) = &self.menus {
             menus.set_page(self.page, self.layout.pages.len());
         }
+        let pages = self.layout.pages.len();
         let Some(page) = self.layout.pages.get(self.page) else {
             eprintln!(
                 "the layout is empty: add widgets in Configure Widgets… (menu bar) or with `edgectl layout add`"
@@ -165,6 +166,31 @@ impl App {
                 Err(e) => eprintln!("skipping {} ({}): {e:#}", inst.widget, inst.id.short()),
             }
         }
+        if let Err(e) = surface.set_pager(self.page, pages) {
+            eprintln!("warning: {e:#}");
+        }
+    }
+
+    /// Show the next (`forward`) or previous page, wrapping around.
+    fn step_page(&mut self, forward: bool) {
+        let pages = self.layout.pages.len();
+        if pages < 2 {
+            return;
+        }
+        self.page = if forward {
+            (self.page + 1) % pages
+        } else {
+            (self.page + pages - 1) % pages
+        };
+        self.show_page();
+    }
+
+    /// Show page `page` if it exists and is not already shown.
+    fn go_to_page(&mut self, page: usize) {
+        if page < self.layout.pages.len() && page != self.page {
+            self.page = page;
+            self.show_page();
+        }
     }
 
     /// Handle a report from a widget view.
@@ -175,6 +201,14 @@ impl App {
                 if let Some(surface) = &self.surface {
                     surface.take_keyboard();
                 }
+                return;
+            }
+            RuntimeEvent::Swipe { forward } => {
+                self.step_page(forward);
+                return;
+            }
+            RuntimeEvent::ShowPage(page) => {
+                self.go_to_page(page);
                 return;
             }
             RuntimeEvent::Close => return,
@@ -211,17 +245,10 @@ impl App {
 
     /// Handle a menu choice. Returns `true` to quit.
     pub fn on_menu(&mut self, id: &str, target: &EventLoopWindowTarget<AppEvent>) -> bool {
-        let pages = self.layout.pages.len();
         match id {
             ids::QUIT => return true,
-            ids::NEXT if pages > 0 => {
-                self.page = (self.page + 1) % pages;
-                self.show_page();
-            }
-            ids::PREVIOUS if pages > 0 => {
-                self.page = (self.page + pages - 1) % pages;
-                self.show_page();
-            }
+            ids::NEXT => self.step_page(true),
+            ids::PREVIOUS => self.step_page(false),
             ids::RELOAD => self.reload_or_report(target),
             ids::CONFIGURE => self.open_configurator(target),
             ids::OPEN_DATA => {

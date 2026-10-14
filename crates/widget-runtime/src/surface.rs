@@ -5,9 +5,14 @@
 //! window ([`edge_layout::fit_panel`]): `scale` logical points per panel pixel, letterboxed when the
 //! display is not in its native mode. Each view's bounds are `offset + slot × scale` and its page
 //! zoom is `scale`, so the widget always sees a CSS viewport equal to its slot size.
+//!
+//! Page changes: every visible view (widgets and the background) runs `shim/edge-swipe.js`, which
+//! reports horizontal swipes, and a strip of page dots ([`Surface::set_pager`]) sits above the
+//! widgets at the bottom centre.
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -38,6 +43,14 @@ use crate::{plugins, proxy};
 const SCHEME: &str = "icuew";
 /// Blank page the evaluate views load (reserved path; never a widget file).
 const EVAL_PATH: &str = "/__edgehost/eval.html";
+/// Swipe detector shared by every visible view (a function expression; see [`swipe_script`]).
+const SWIPE_SOURCE: &str = include_str!("../shim/edge-swipe.js");
+/// Page-dot strip geometry, in panel pixels: one dot's tap target, the strip height, the inner
+/// padding and the gap to the panel's bottom edge.
+const DOT_TARGET: u32 = 56;
+const PAGER_HEIGHT: u32 = 40;
+const PAGER_PADDING: u32 = 8;
+const PAGER_BOTTOM: u32 = 2;
 /// Namespace for EdgeHost's name-based (v5) UUIDs.
 pub(crate) const NAMESPACE: Uuid = Uuid::from_u128(0x5f0e_9c1d_7a2b_4e63_9d84_1c6f_2b7a_e0d3);
 
@@ -76,6 +89,13 @@ pub enum RuntimeEvent {
     Close,
     /// A text field in a widget gained focus: make EdgeHost the key app so typing reaches it.
     WantsKeyboard,
+    /// A horizontal swipe on the surface: show the next page (`forward`) or the previous one.
+    Swipe {
+        /// `true` for a right-to-left swipe.
+        forward: bool,
+    },
+    /// A page dot was tapped: show this zero-based page.
+    ShowPage(usize),
 }
 
 /// Where web views deliver [`RuntimeEvent`]s (usually an event-loop proxy).
@@ -101,6 +121,10 @@ pub struct Surface {
     window: Window,
     parent: platform::ViewParent,
     _background: WebView,
+    /// The page dots, when there is more than one page; rebuilt to stay above new widget views.
+    pager: Option<WebView>,
+    /// `(current, count)` of the last [`Surface::set_pager`].
+    pages: (usize, usize),
     orientation: Orientation,
     fit: Fit,
     on_display: bool,
@@ -193,21 +217,17 @@ impl Surface {
             .build(target)
             .context("creating the surface window")?;
         let parent = platform::view_parent(&window)?;
-        let background = platform::attach(
-            &parent,
-            &window,
-            WebViewBuilder::new()
-                .with_bounds(logical_rect((0.0, 0.0), area))
-                .with_html("<!doctype html><html style=\"background:#000;height:100%\"></html>"),
-        )
-        .context("creating the background view")?;
+        let fit = fit_panel(orientation, area);
+        let background = background_view(&parent, &window, area, fit.scale, &sink)?;
         window.set_focus();
         Ok(Self {
             window,
             parent,
             _background: background,
+            pager: None,
+            pages: (0, 0),
             orientation,
-            fit: fit_panel(orientation, area),
+            fit,
             on_display: matches!(selection, Selection::Display { .. }),
             description,
             device_id: Uuid::new_v5(&NAMESPACE, device_key.as_bytes()),
@@ -299,13 +319,68 @@ impl Surface {
             }
         }
         self.views.insert(instance.id, view);
+        if self.pager.is_some() {
+            // The new view was stacked on top; put the dots back above it.
+            if let Err(e) = self.build_pager() {
+                eprintln!("warning: could not show the page dots: {e:#}");
+            }
+        }
         Ok(())
     }
 
-    /// Remove every widget and evaluate view.
+    /// Remove every widget and evaluate view, and the page dots.
     pub fn unmount_all(&mut self) {
+        self.pager = None;
         self.views.clear();
         self.evaluations.clear();
+    }
+
+    /// Show page dots for `count` pages with `current` highlighted (none for fewer than two
+    /// pages). Call after mounting the page so the dots sit above its widgets.
+    ///
+    /// # Errors
+    ///
+    /// The dot view cannot be created.
+    pub fn set_pager(&mut self, current: usize, count: usize) -> Result<()> {
+        self.pages = (current, count);
+        self.build_pager()
+    }
+
+    fn build_pager(&mut self) -> Result<()> {
+        self.pager = None;
+        let (current, count) = self.pages;
+        if count < 2 {
+            return Ok(());
+        }
+        let (panel_w, panel_h) = self.orientation.panel_size();
+        let dots = u32::try_from(count).unwrap_or(u32::MAX);
+        let width = dots
+            .saturating_mul(DOT_TARGET)
+            .saturating_add(2 * PAGER_PADDING)
+            .min(panel_w);
+        let x = (panel_w - width) / 2;
+        let y = panel_h - PAGER_HEIGHT - PAGER_BOTTOM;
+        let s = self.fit.scale;
+        let (ox, oy) = self.fit.offset;
+        let bounds = logical_rect(
+            (ox + f64::from(x) * s, oy + f64::from(y) * s),
+            (f64::from(width) * s, f64::from(PAGER_HEIGHT) * s),
+        );
+        let view = platform::attach(
+            &self.parent,
+            &self.window,
+            WebViewBuilder::new()
+                .with_bounds(bounds)
+                .with_transparent(true)
+                .with_accept_first_mouse(true)
+                .with_initialization_script_for_main_only(swipe_script(), true)
+                .with_ipc_handler(host_ipc(Rc::clone(&self.sink)))
+                .with_html(pager_html(current, count)),
+        )
+        .context("creating the page dots")?;
+        view.zoom(s).context("setting page-dot zoom")?;
+        self.pager = Some(view);
+        Ok(())
     }
 
     fn slot_bounds(&self, instance: &WidgetInstance) -> Result<Rect> {
@@ -374,7 +449,13 @@ impl Surface {
             // the active app, instead of only activating it (the first click would be swallowed).
             .with_accept_first_mouse(true)
             .with_devtools(devtools)
-            .with_initialization_script_for_main_only(script, true)
+            .with_initialization_script_for_main_only(script, true);
+        let builder = if visible {
+            builder.with_initialization_script_for_main_only(swipe_script(), true)
+        } else {
+            builder
+        };
+        let builder = builder
             .with_asynchronous_custom_protocol(SCHEME.to_owned(), move |_id, request, responder| {
                 let uri = request.uri();
                 if uri.path() == proxy::ROUTE {
@@ -419,6 +500,81 @@ fn plugin_host(instance: &WidgetInstance) -> Option<Arc<PluginHost>> {
         },
     );
     (!host.is_empty()).then(|| Arc::new(host))
+}
+
+/// The black view behind the widgets; swipes that start between or around widgets land here.
+fn background_view(
+    parent: &platform::ViewParent,
+    window: &Window,
+    area: (f64, f64),
+    scale: f64,
+    sink: &EventSink,
+) -> Result<WebView> {
+    let view = platform::attach(
+        parent,
+        window,
+        WebViewBuilder::new()
+            .with_bounds(logical_rect((0.0, 0.0), area))
+            .with_accept_first_mouse(true)
+            .with_initialization_script_for_main_only(swipe_script(), true)
+            .with_ipc_handler(host_ipc(Rc::clone(sink)))
+            .with_html(
+                "<!doctype html><html style=\"background:#000;height:100%\">\
+                 <body style=\"margin:0;height:100%\"></body></html>",
+            ),
+    )
+    .context("creating the background view")?;
+    view.zoom(scale).context("setting background zoom")?;
+    Ok(view)
+}
+
+/// The swipe detector, called with a poster that sends to the host.
+fn swipe_script() -> String {
+    format!(
+        "{SWIPE_SOURCE}((m) => {{ try {{ window.ipc.postMessage(JSON.stringify(m)); }} catch (_) {{}} }});"
+    )
+}
+
+/// IPC handler for host views (the background and the page dots).
+fn host_ipc(sink: EventSink) -> impl Fn(wry::http::Request<String>) + 'static {
+    move |request| {
+        if let Some(event) = report("edgehost", Uuid::nil(), request.body()) {
+            sink(event);
+        }
+    }
+}
+
+/// The page-dot strip: one button per page, `current` highlighted; a tap posts `{k: "page"}`.
+fn pager_html(current: usize, count: usize) -> String {
+    let mut dots = String::new();
+    for i in 0..count {
+        let on = if i == current { " class=\"on\"" } else { "" };
+        // Writing to a String cannot fail.
+        let _ = write!(
+            dots,
+            "<button data-index=\"{i}\"{on} aria-label=\"Page {}\"><i></i></button>",
+            i + 1
+        );
+    }
+    format!(
+        "<!doctype html><html><head><style>\
+         html,body{{margin:0;height:100%;background:transparent;overflow:hidden}}\
+         body{{display:flex;justify-content:center;align-items:center;box-sizing:border-box;\
+         padding:0 {PAGER_PADDING}px;border-radius:{r}px;background:rgba(0,0,0,.45);\
+         user-select:none;-webkit-user-select:none}}\
+         button{{all:unset;width:{DOT_TARGET}px;height:100%;display:flex;justify-content:center;\
+         align-items:center;cursor:pointer}}\
+         i{{width:12px;height:12px;border-radius:50%;background:rgba(255,255,255,.4)}}\
+         .on i{{background:#fff}}\
+         </style></head><body>{dots}<script>\
+         let down=null;const dot=(e)=>e.target.closest&&e.target.closest('[data-index]');\
+         addEventListener('pointerdown',(e)=>{{down=dot(e);}},true);\
+         addEventListener('pointerup',(e)=>{{const b=dot(e);\
+         if(b&&b===down)window.ipc.postMessage(JSON.stringify({{k:'page',index:Number(b.dataset.index)}}));\
+         down=null;}},true);\
+         </script></body></html>",
+        r = PAGER_HEIGHT / 2
+    )
 }
 
 fn logical_rect(origin: (f64, f64), size: (f64, f64)) -> Rect {
@@ -485,6 +641,19 @@ fn report(label: &str, instance: Uuid, body: &str) -> Option<RuntimeEvent> {
         "booted" => eprintln!("[{label}] booted"),
         "close" => return Some(RuntimeEvent::Close),
         "keyboard" => return Some(RuntimeEvent::WantsKeyboard),
+        "swipe" => match message.get("dir").and_then(Value::as_i64) {
+            Some(1) => return Some(RuntimeEvent::Swipe { forward: true }),
+            Some(-1) => return Some(RuntimeEvent::Swipe { forward: false }),
+            _ => eprintln!("[{label}] bad swipe: {body}"),
+        },
+        "page" => match message
+            .get("index")
+            .and_then(Value::as_u64)
+            .and_then(|i| usize::try_from(i).ok())
+        {
+            Some(i) => return Some(RuntimeEvent::ShowPage(i)),
+            None => eprintln!("[{label}] bad page: {body}"),
+        },
         "evaluated" => {
             let values = match message.get("values") {
                 Some(Value::Object(map)) => {
@@ -520,8 +689,37 @@ mod tests {
                 ]),
             })
         );
+        assert_eq!(
+            report("w", id, r#"{"k":"swipe","dir":1}"#),
+            Some(RuntimeEvent::Swipe { forward: true })
+        );
+        assert_eq!(
+            report("w", id, r#"{"k":"swipe","dir":-1}"#),
+            Some(RuntimeEvent::Swipe { forward: false })
+        );
+        assert_eq!(report("w", id, r#"{"k":"swipe","dir":0}"#), None);
+        assert_eq!(
+            report("w", id, r#"{"k":"page","index":2}"#),
+            Some(RuntimeEvent::ShowPage(2))
+        );
+        assert_eq!(report("w", id, r#"{"k":"page","index":-1}"#), None);
         assert_eq!(report("w", id, r#"{"k":"booted"}"#), None);
         assert_eq!(report("w", id, "not json"), None);
+    }
+
+    #[test]
+    fn pager_marks_the_current_page() {
+        let html = pager_html(1, 3);
+        assert_eq!(html.matches("<button").count(), 3);
+        assert!(html.contains(r#"data-index="1" class="on""#));
+        assert!(!html.contains(r#"data-index="0" class="on""#));
+    }
+
+    #[test]
+    fn swipe_script_calls_the_detector() {
+        let script = swipe_script();
+        assert!(script.starts_with("// EdgeHost page swipes"));
+        assert!(script.trim_end().ends_with("});"));
     }
 
     #[test]
