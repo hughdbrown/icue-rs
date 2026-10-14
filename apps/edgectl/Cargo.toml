@@ -1,0 +1,18 @@
+[package]
+name = "edgectl"
+description = "EdgeHost developer CLI: validate widgets and run one on the XENEON EDGE"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+edge-layout.workspace = true
+icuew-manifest.workspace = true
+widget-runtime.workspace = true
+
+[lints]
+workspace = true

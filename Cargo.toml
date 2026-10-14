@@ -1,8 +1,10 @@
 [workspace]
 resolver = "3"
 members = [
+    "apps/edgectl",
     "crates/edge-layout",
     "crates/icuew-manifest",
+    "crates/widget-runtime",
 ]
 
 [workspace.package]

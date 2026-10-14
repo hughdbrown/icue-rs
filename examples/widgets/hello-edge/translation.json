@@ -1,0 +1,22 @@
+{
+	"en": {
+		"translation": {
+			"Hello Edge": "Hello Edge",
+			"Rendered by EdgeHost": "Rendered by EdgeHost",
+			"Headline": "Headline",
+			"Text Color": "Text Color",
+			"Accent Color": "Accent Color",
+			"Background Color": "Background Color",
+			"Text Size": "Text Size",
+			"Show Seconds": "Show Seconds",
+			"Content": "Content",
+			"Appearance": "Appearance"
+		}
+	},
+	"de": {
+		"translation": {
+			"Hello Edge": "Hallo Edge",
+			"Rendered by EdgeHost": "Dargestellt von EdgeHost"
+		}
+	}
+}

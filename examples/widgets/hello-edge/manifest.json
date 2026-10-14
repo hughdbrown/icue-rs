@@ -1,0 +1,14 @@
+{
+	"author": "EdgeHost",
+	"id": "dev.edgehost.hello-edge",
+	"name": "Hello Edge",
+	"description": "EdgeHost test widget: shows the injected iCUE globals, a clock and a tap counter",
+	"version": "0.1.0",
+	"preview_icon": "resources/icon.svg",
+	"min_app_version": "5.47",
+	"min_framework_version": "1.0.0",
+	"os": [{ "platform": "windows" }, { "platform": "mac" }],
+	"supported_devices": [{ "type": "dashboard_lcd" }],
+	"interactive": true,
+	"modules": ["modules/Greeting.mjs"]
+}

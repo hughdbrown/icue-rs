@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>tr('Hello Edge')</title>
+		<link rel="icon" type="image/svg+xml" href="resources/icon.svg" />
+		<meta name="x-icue-property" content="headline" data-label="tr('Headline')" data-type="textfield" data-default="Greeting.defaultHeadline()" />
+		<meta name="x-icue-property" content="textColor" data-label="tr('Text Color')" data-type="color" data-default="'#FFFFFF'" />
+		<meta name="x-icue-property" content="accentColor" data-label="tr('Accent Color')" data-type="color" data-default="'#FFD200'" />
+		<meta name="x-icue-property" content="backgroundColor" data-label="tr('Background Color')" data-type="color" data-default="'#1B1F2A'" />
+		<meta name="x-icue-property" content="fontScale" data-label="tr('Text Size')" data-type="slider" data-default="100" data-min="50" data-max="200" data-unit-label="'%'" />
+		<meta name="x-icue-property" content="showSeconds" data-label="tr('Show Seconds')" data-type="switch" data-default="true" />
+		<script type="application/json" id="x-icue-groups">
+			[
+				{ "title": "tr('Content')", "properties": ["headline", "showSeconds"] },
+				{ "title": "tr('Appearance')", "properties": ["textColor", "accentColor", "backgroundColor", "fontScale"] }
+			]
+		</script>
+		<link rel="stylesheet" href="styles/main.css" />
+	</head>
+	<body>
+		<main id="root">
+			<h1 id="headline"></h1>
+			<p id="greeting"></p>
+			<div id="clock"></div>
+			<button id="tap" type="button">tap</button>
+			<dl id="facts"></dl>
+		</main>
+		<script src="scripts/main.js"></script>
+	</body>
+</html>

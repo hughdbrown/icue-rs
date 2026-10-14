@@ -1,0 +1,189 @@
+//! The document-start injection script.
+//!
+//! `shim/icue-shim.js` is a function of one argument, the payload; [`render`] serialises the
+//! payload for a widget instance and substitutes it for the `__PAYLOAD__` token.
+
+use std::collections::BTreeMap;
+
+use icuew_manifest::WidgetDef;
+use serde::Serialize;
+use uuid::Uuid;
+
+const SHIM_SOURCE: &str = include_str!("../shim/icue-shim.js");
+const PAYLOAD_TOKEN: &str = "__PAYLOAD__";
+
+/// Unit returned by `iCUE.defaultTemperatureUnit()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TemperatureUnit {
+    /// `°C`.
+    #[default]
+    Celsius,
+    /// `°F`.
+    Fahrenheit,
+}
+
+impl TemperatureUnit {
+    const fn symbol(self) -> &'static str {
+        match self {
+            Self::Celsius => "°C",
+            Self::Fahrenheit => "°F",
+        }
+    }
+}
+
+/// Per-instance values injected alongside the widget's own definition.
+#[derive(Debug, Clone)]
+pub struct ShimConfig {
+    /// `iCUE.iCUELanguage`, also selects the `tr()` table.
+    pub language: String,
+    /// `iCUE.fpsLimit`.
+    pub fps_limit: u32,
+    /// `iCUE.isPreview`.
+    pub is_preview: bool,
+    /// Widget instance id: `uniqueId` and `iCUE.widgetId`.
+    pub instance_id: Uuid,
+    /// `device.deviceId`.
+    pub device_id: Uuid,
+    /// `iCUE.defaultTemperatureUnit()`.
+    pub temperature_unit: TemperatureUnit,
+    /// Base URL the widget is served from, ending in `/` (e.g. `icuew://<host>/`).
+    pub base_url: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Payload<'a> {
+    lang: &'a str,
+    fps_limit: u32,
+    preview: bool,
+    widget_id: String,
+    instance_id: String,
+    device_id: String,
+    temp_unit: &'static str,
+    props: Vec<PropPayload<'a>>,
+    tr: BTreeMap<String, String>,
+    modules: Vec<ModulePayload>,
+    plugins: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PropPayload<'a> {
+    name: &'a str,
+    default_expr: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+struct ModulePayload {
+    url: String,
+    global: String,
+}
+
+/// Render the injection script for one widget instance.
+///
+/// # Errors
+///
+/// Only if payload serialisation fails, which would indicate a bug.
+pub fn render(def: &WidgetDef, cfg: &ShimConfig) -> Result<String, serde_json::Error> {
+    let modules = def
+        .manifest
+        .modules
+        .iter()
+        .map(|path| {
+            let rel = path.trim_start_matches("./").trim_start_matches('/');
+            let file = rel.rsplit('/').next().unwrap_or(rel);
+            let global = file
+                .split_once('.')
+                .map_or(file, |(stem, _)| stem)
+                .to_owned();
+            ModulePayload {
+                url: format!("{}{rel}", cfg.base_url),
+                global,
+            }
+        })
+        .collect();
+    let payload = Payload {
+        lang: &cfg.language,
+        fps_limit: cfg.fps_limit,
+        preview: cfg.is_preview,
+        widget_id: cfg.instance_id.hyphenated().to_string(),
+        instance_id: cfg.instance_id.hyphenated().to_string(),
+        device_id: cfg.device_id.hyphenated().to_string(),
+        temp_unit: cfg.temperature_unit.symbol(),
+        props: def
+            .head
+            .properties
+            .iter()
+            .map(|p| PropPayload {
+                name: p.name.as_str(),
+                default_expr: p.default_expr(),
+            })
+            .collect(),
+        tr: def.translations.table(&cfg.language),
+        modules,
+        plugins: def
+            .manifest
+            .required_plugins
+            .iter()
+            .map(icuew_manifest::PluginRef::facade_name)
+            .collect(),
+    };
+    let json = script_safe(&serde_json::to_string(&payload)?);
+    Ok(SHIM_SOURCE.replacen(PAYLOAD_TOKEN, &json, 1))
+}
+
+/// Escape JSON so it cannot terminate an enclosing `<script>` or break a JS string literal.
+fn script_safe(json: &str) -> String {
+    json.replace('<', "\\u003c")
+        .replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn def() -> WidgetDef {
+        let dir = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../examples/widgets/hello-edge"
+        );
+        WidgetDef::load(dir).unwrap()
+    }
+
+    fn cfg() -> ShimConfig {
+        ShimConfig {
+            language: "en".into(),
+            fps_limit: 30,
+            is_preview: false,
+            instance_id: Uuid::from_u128(1),
+            device_id: Uuid::from_u128(2),
+            temperature_unit: TemperatureUnit::Celsius,
+            base_url: "icuew://abc/".into(),
+        }
+    }
+
+    #[test]
+    fn shim_source_has_exactly_one_placeholder() {
+        assert_eq!(SHIM_SOURCE.matches(PAYLOAD_TOKEN).count(), 1);
+    }
+
+    #[test]
+    fn renders_payload_once() {
+        let js = render(&def(), &cfg()).unwrap();
+        assert!(!js.contains(PAYLOAD_TOKEN));
+        assert!(js.contains(r#""instanceId":"00000000-0000-0000-0000-000000000001""#));
+        assert!(js.contains(r#""url":"icuew://abc/modules/Greeting.mjs","global":"Greeting""#));
+        assert!(js.contains(r#""name":"textColor""#));
+    }
+
+    #[test]
+    fn payload_cannot_close_script_tag() {
+        let json = serde_json::to_string(&["</script><script>alert(1)</script>\u{2028}"]).unwrap();
+        let safe = script_safe(&json);
+        assert!(!safe.contains("</script>"));
+        assert!(safe.contains("\\u003c/script>") && safe.contains("\\u2028"));
+        let back: Vec<String> = serde_json::from_str(&safe).unwrap();
+        assert_eq!(back[0], "</script><script>alert(1)</script>\u{2028}");
+    }
+}
