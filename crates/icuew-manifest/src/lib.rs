@@ -10,6 +10,7 @@
 mod head;
 mod manifest;
 mod translations;
+mod validate;
 
 use std::fs;
 use std::io;
@@ -18,6 +19,7 @@ use std::path::{Path, PathBuf};
 pub use head::{ControlKind, HeadInfo, PropertyDef, PropertyGroup, PropertyName};
 pub use manifest::{DeviceType, Manifest, OsEntry, Platform, PluginRef, SupportedDevice, WidgetId};
 pub use translations::Translations;
+pub use validate::{Diagnostic, Report, Severity, validate_dir};
 
 /// Errors produced while loading or parsing a widget.
 #[derive(Debug, thiserror::Error)]
