@@ -23,6 +23,10 @@ wry.workspace = true
 # Already in the tree via tao; used for EDID vendor/model numbers.
 core-graphics = "0.25"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# Same major version tao uses, for the gtk::Fixed that hosts child web views.
+gtk = "0.18"
+
 [dev-dependencies]
 tempfile.workspace = true
 

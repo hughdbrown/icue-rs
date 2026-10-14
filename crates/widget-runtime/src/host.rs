@@ -64,6 +64,7 @@ pub fn run_one(opts: &RunOptions) -> Result<()> {
             common_dir,
             language: "en".to_owned(),
             escape_closes: true,
+            web_data_dir: std::env::temp_dir().join("edgehost-run-one"),
         },
         sink,
     )?;

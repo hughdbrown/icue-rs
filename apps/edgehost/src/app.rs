@@ -87,6 +87,7 @@ impl App {
                 common_dir: self.store.common_dir(),
                 language: "en".to_owned(),
                 escape_closes: false,
+                web_data_dir: self.store.root().join("webdata"),
             },
             sink,
         )?;
@@ -202,10 +203,7 @@ impl App {
             }
             ids::RELOAD => self.reload_or_report(target),
             ids::OPEN_DATA => {
-                if let Err(e) = std::process::Command::new("open")
-                    .arg(self.store.root())
-                    .spawn()
-                {
+                if let Err(e) = widget_runtime::platform::reveal(self.store.root()) {
                     eprintln!("opening {}: {e}", self.store.root().display());
                 }
             }

@@ -619,9 +619,13 @@ dependencies = [
  "edge-layout",
  "edge-store",
  "icuew-manifest",
+ "serde",
+ "serde_json",
  "tao",
+ "tempfile",
  "tray-icon",
  "widget-runtime",
+ "wry",
 ]
 
 [[package]]
@@ -3002,6 +3006,7 @@ dependencies = [
  "anyhow",
  "core-graphics",
  "edge-layout",
+ "gtk",
  "icuew-manifest",
  "serde",
  "serde_json",

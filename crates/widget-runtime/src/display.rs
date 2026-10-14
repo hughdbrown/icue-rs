@@ -2,7 +2,8 @@
 
 use edge_layout::DisplayInfo;
 use tao::event_loop::EventLoopWindowTarget;
-use tao::monitor::MonitorHandle;
+
+use crate::platform;
 
 /// Every connected display, in the order the windowing system reports them (the index used by
 /// `edgectl displays` and `--display <index>`).
@@ -15,7 +16,7 @@ pub fn list_displays<T: 'static>(target: &EventLoopWindowTarget<T>) -> Vec<Displ
             let size = m.size();
             let origin = m.position().to_logical::<f64>(scale);
             let logical = size.to_logical::<f64>(scale);
-            let (vendor, model) = edid_ids(&m);
+            let (vendor, model) = platform::edid_ids(&m);
             DisplayInfo {
                 name: m.name().unwrap_or_else(|| "(unnamed)".to_owned()),
                 vendor,
@@ -27,16 +28,4 @@ pub fn list_displays<T: 'static>(target: &EventLoopWindowTarget<T>) -> Vec<Displ
             }
         })
         .collect()
-}
-
-#[cfg(target_os = "macos")]
-fn edid_ids(m: &MonitorHandle) -> (Option<u32>, Option<u32>) {
-    use tao::platform::macos::MonitorHandleExtMacOS;
-    let display = core_graphics::display::CGDisplay::new(m.native_id());
-    (Some(display.vendor_number()), Some(display.model_number()))
-}
-
-#[cfg(not(target_os = "macos"))]
-fn edid_ids(_m: &MonitorHandle) -> (Option<u32>, Option<u32>) {
-    (None, None)
 }

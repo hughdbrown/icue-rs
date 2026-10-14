@@ -11,6 +11,7 @@
 pub mod assets;
 pub mod display;
 pub mod host;
+pub mod platform;
 pub mod proxy;
 pub mod shim;
 pub mod surface;

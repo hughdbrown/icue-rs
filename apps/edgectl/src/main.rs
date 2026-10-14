@@ -18,7 +18,7 @@ use widget_runtime::{RunOptions, list_displays, run_one};
     about = "EdgeHost tools for iCUE HTML widgets on the XENEON EDGE"
 )]
 struct Cli {
-    /// Data folder (default: `$EDGEHOST_HOME` or `~/Library/Application Support/EdgeHost`).
+    /// Data folder (default: `$EDGEHOST_HOME`, else the platform data folder).
     #[arg(long, global = true, env = "EDGEHOST_HOME")]
     home: Option<PathBuf>,
     #[command(subcommand)]

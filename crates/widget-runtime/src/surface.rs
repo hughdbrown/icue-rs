@@ -19,7 +19,7 @@ use edge_layout::{
 };
 use icuew_manifest::WidgetDef;
 use serde_json::Value;
-use tao::dpi::{LogicalPosition, LogicalSize};
+use tao::dpi::LogicalSize;
 use tao::event_loop::EventLoopWindowTarget;
 use tao::window::{Window, WindowBuilder};
 use uuid::Uuid;
@@ -28,6 +28,7 @@ use wry::{Rect, WebView, WebViewBuilder};
 
 use crate::assets::{mime_for, read_asset, resolve};
 use crate::display::list_displays;
+use crate::platform;
 use crate::proxy;
 use crate::shim::{self, ShimConfig, ShimMode, TemperatureUnit};
 
@@ -55,6 +56,8 @@ pub struct SurfaceOptions {
     pub language: String,
     /// Developer runs: Escape inside a widget asks the host to close.
     pub escape_closes: bool,
+    /// Where per-instance browser storage lives on platforms that need a folder (Linux).
+    pub web_data_dir: PathBuf,
 }
 
 /// Something a web view reported to the host.
@@ -94,6 +97,7 @@ pub struct WidgetInstance {
 /// The window on the Edge (or stand-in) and the widget views in it.
 pub struct Surface {
     window: Window,
+    parent: platform::ViewParent,
     _background: WebView,
     orientation: Orientation,
     fit: Fit,
@@ -104,6 +108,7 @@ pub struct Surface {
     sink: EventSink,
     views: HashMap<Uuid, WebView>,
     evaluations: HashMap<Uuid, WebView>,
+    storages: HashMap<Uuid, platform::Storage>,
 }
 
 impl Surface {
@@ -138,16 +143,18 @@ impl Surface {
                 if edge_hardware && !native {
                     eprintln!(
                         "warning: the XENEON EDGE is in {}×{} mode, not its native 2560×720; the image is scaled.\n\
-                         Fix: `brew install displayplacer`, then `displayplacer list` and select its \
-                         res:2560x720 mode (see docs/research/edge-hardware.md).",
-                        d.pixel_size.0, d.pixel_size.1
+                         Fix: {}.",
+                        d.pixel_size.0,
+                        d.pixel_size.1,
+                        platform::native_mode_hint()
                     );
                 }
-                let builder = builder
-                    .with_decorations(false)
-                    .with_position(LogicalPosition::new(d.logical_origin.0, d.logical_origin.1))
-                    .with_inner_size(LogicalSize::new(d.logical_size.0, d.logical_size.1))
-                    .with_visible_on_all_workspaces(true);
+                let monitor = target
+                    .available_monitors()
+                    .nth(index)
+                    .context("selected display disappeared")?;
+                let builder =
+                    platform::place_surface(builder, &monitor, d.logical_origin, d.logical_size);
                 let kind = if edge_hardware {
                     "XENEON EDGE"
                 } else {
@@ -183,14 +190,19 @@ impl Surface {
         let window = builder
             .build(target)
             .context("creating the surface window")?;
-        let background = WebViewBuilder::new()
-            .with_bounds(logical_rect((0.0, 0.0), area))
-            .with_html("<!doctype html><html style=\"background:#000;height:100%\"></html>")
-            .build_as_child(&window)
-            .context("creating the background view")?;
+        let parent = platform::view_parent(&window)?;
+        let background = platform::attach(
+            &parent,
+            &window,
+            WebViewBuilder::new()
+                .with_bounds(logical_rect((0.0, 0.0), area))
+                .with_html("<!doctype html><html style=\"background:#000;height:100%\"></html>"),
+        )
+        .context("creating the background view")?;
         window.set_focus();
         Ok(Self {
             window,
+            parent,
             _background: background,
             orientation,
             fit: fit_panel(orientation, area),
@@ -201,6 +213,7 @@ impl Surface {
             sink,
             views: HashMap::new(),
             evaluations: HashMap::new(),
+            storages: HashMap::new(),
         })
     }
 
@@ -324,7 +337,7 @@ impl Surface {
     }
 
     fn build_view(
-        &self,
+        &mut self,
         instance: &WidgetInstance,
         script: &str,
         path: &str,
@@ -337,14 +350,25 @@ impl Surface {
         let label = instance.def.manifest.id.to_string();
         let id = instance.id;
         let sink = Rc::clone(&self.sink);
-        let builder = WebViewBuilder::new()
+        let devtools = self.opts.devtools;
+        let Self {
+            window,
+            parent,
+            storages,
+            opts,
+            ..
+        } = self;
+        let storage = storages
+            .entry(id)
+            .or_insert_with(|| platform::storage(&opts.web_data_dir, id));
+        let builder = platform::builder(storage, id)
             .with_bounds(bounds)
             .with_visible(visible)
             .with_transparent(true)
             // The Edge is a second screen: a tap must reach the widget even when EdgeHost is not
             // the active app, instead of only activating it (the first click would be swallowed).
             .with_accept_first_mouse(true)
-            .with_devtools(self.opts.devtools)
+            .with_devtools(devtools)
             .with_initialization_script_for_main_only(script, true)
             .with_asynchronous_custom_protocol(SCHEME.to_owned(), move |_id, request, responder| {
                 let uri = request.uri();
@@ -364,15 +388,7 @@ impl Surface {
                 }
             })
             .with_url(format!("{SCHEME}://{}{path}", id.simple()));
-        #[cfg(target_os = "macos")]
-        let builder = {
-            use wry::WebViewBuilderExtDarwin;
-            // Per-instance WebKit data store (macOS 14+): isolated localStorage/IndexedDB, as iCUE does.
-            builder.with_data_store_identifier(*id.as_bytes())
-        };
-        builder
-            .build_as_child(&self.window)
-            .context("creating a widget view")
+        platform::attach(parent, window, builder).context("creating a widget view")
     }
 }
 
