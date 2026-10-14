@@ -94,10 +94,10 @@
 		}
 		connect();
 		const wanted = parsePairs(typeof window.pairs === "string" ? window.pairs : "");
-		for (const old of pairs) if (!wanted.includes(old)) p.unwatch(old).catch(() => {});
-		for (const pair of wanted) {
-			if (!pairs.includes(pair)) p.watch(pair).catch((e) => onError(pair, e.message || e));
-		}
+		// Plugin calls never reject (a failure resolves to undefined); fetch errors for watched
+		// pairs arrive as priceError signals instead.
+		for (const old of pairs) if (!wanted.includes(old)) p.unwatch(old);
+		for (const pair of wanted) if (!pairs.includes(pair)) p.watch(pair);
 		for (const old of rows.keys()) if (!wanted.includes(old)) rows.delete(old);
 		pairs = wanted;
 		message(pairs.length ? "" : "Add pairs such as BTC-USD in the widget settings.");

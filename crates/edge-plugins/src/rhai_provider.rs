@@ -418,6 +418,17 @@ fn http_get(grants: &[HttpGrant], url: &str) -> Result<String, String> {
     }
     let mut response = agent().get(url).call().map_err(|e| e.to_string())?;
     let status = response.status().as_u16();
+    if (300..400).contains(&status) {
+        // Following it could reach a host the add-in did not declare.
+        let to = response
+            .headers()
+            .get("location")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("?");
+        return Err(format!(
+            "HTTP {status} from {url} redirects to {to}; redirects are not followed, so request the final URL (its host must be in permissions.http)"
+        ));
+    }
     let body = response
         .body_mut()
         .with_config()
@@ -441,6 +452,7 @@ fn agent() -> &'static ureq::Agent {
             .tls_config(tls)
             .timeout_global(Some(HTTP_TIMEOUT))
             .http_status_as_error(false)
+            .max_redirects(0)
             .user_agent(concat!("EdgeHost/", env!("CARGO_PKG_VERSION")))
             .build()
             .new_agent()
@@ -547,6 +559,47 @@ mod tests {
         assert!(script_functions(r#"fn handle(m, a) { eval("1") }"#).is_err());
         let (p, _) = provider("", r#"fn handle(m, a) { import "x" as x; 1 }"#);
         assert!(p.call("get", &[]).is_err());
+    }
+
+    /// A one-shot HTTP server on 127.0.0.1 answering every request with `response`.
+    fn stub_server(response: &'static str) -> u16 {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().take(4) {
+                let mut s = stream.unwrap();
+                let mut buf = [0_u8; 2048];
+                let _ = s.read(&mut buf);
+                let _ = s.write_all(response.as_bytes());
+            }
+        });
+        port
+    }
+
+    #[test]
+    fn http_get_reads_granted_hosts_and_does_not_follow_redirects() {
+        let ok =
+            stub_server("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello");
+        let grant = |port: u16| {
+            [crate::addin::HttpGrant {
+                host: "127.0.0.1".into(),
+                port: Some(port),
+            }]
+        };
+        assert_eq!(
+            http_get(&grant(ok), &format!("http://127.0.0.1:{ok}/x")),
+            Ok("hello".into())
+        );
+        let moved = stub_server(
+            "HTTP/1.1 302 Found\r\nLocation: http://evil.example/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        );
+        let err = http_get(&grant(moved), &format!("http://127.0.0.1:{moved}/")).unwrap_err();
+        assert!(err.contains("redirects to http://evil.example/"), "{err}");
+        let missing =
+            stub_server("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        let err = http_get(&grant(missing), &format!("http://127.0.0.1:{missing}/")).unwrap_err();
+        assert!(err.starts_with("HTTP 404"), "{err}");
     }
 
     #[test]
