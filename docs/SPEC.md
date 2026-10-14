@@ -1,12 +1,43 @@
 # EdgeHost: an iCUE-compatible widget host and add-in controller for XENEON EDGE on macOS
 
-Status: draft v0.1, 2026-10-13
+Status: draft v0.2, 2026-10-13 (v0.2 applies `docs/recommendations.md` and owner decisions; see §0)
 Repo: `~/projects/software/icue-rs`
 Inputs:
 - `~/projects/data/corsair-xeneon-edge-icue/outline.md`: the 2026-10-03 feasibility Q&A
 - `docs/research/rea-icue-mac-findings.md`: reverse-engineering run of iCUE 5.52.93 for Mac (rea, Ghidra, Hopper)
 - `docs/research/icue-widget-api-reference.md`: condensed public widget API 1.9.0 (docs.elgato.com)
 - `~/tools/corsair-labs/iCUE-widget-runner-{RaspberryPi,windows}`: Corsair's own MIT-licensed Electron runners (prior art)
+
+---
+
+## 0. Revision 0.2 decisions
+
+Owner decisions:
+- The name is **EdgeHost**.
+- The app appears **in the Dock and in the menu bar** (regular activation policy plus an `NSStatusItem`).
+- The minimum OS is **macOS 14 Sonoma**.
+- **Add-ins are scripts in [Rhai](https://github.com/rhaiscript/rhai)** (§7.1).
+
+From the review (`docs/recommendations.md`):
+
+| Topic | Decision |
+|---|---|
+| Crate count | Start with 5 crates (`icuew-manifest`, `edge-layout`, `widget-runtime`, an `edgehost` app crate, `edgectl`). Providers, store, permissions and touch begin as modules of the app crate and are extracted only when the boundary is proven (§3.1). |
+| M0 | Hard gate for **touch (M4) and Edge display identity** only. Packages, layout, runtime and providers do not depend on the hardware and proceed in parallel. |
+| Attribute expressions | Runtime pages receive **concrete property values only**. Expressions are evaluated in a hidden evaluation context **after provider snapshots arrive** (§6.4). M1's in-page evaluation is an interim shortcut. |
+| "Block" (synchronous) plugin methods | Kept, answered in JavaScript from host-pushed snapshots (§6.5). The review's claim that they cannot be synchronous applies only to native round trips. |
+| Providers in v1 | `link`, `filesystem` and basic `sensors` (CPU, GPU and memory load; temperatures best-effort). `media` moves to v1.5. `notifications`, `fps`, `deviceaction` and `streamdeck` are declared unsupported stubs (§7.2). |
+| Permissions | Enforced in phases (§8.3). |
+| Engine | WebKit only in v1. CEF is out of scope unless the corpus forces it (§6.2). |
+| Display | Size-based auto-detection plus a **manual display picker** (§5.1). |
+
+M1 results (2026-10-13), from `edgectl run-one --windowed` at L size:
+- `hello-edge` and all five Corsair Labs runner samples boot: AirQuality, Doodle Pad, Robex Tourbillon,
+  SpectrumAnalyzer and VU Meter.
+- Compatibility fixes the corpus forced:
+  - a shared `common/` folder served at `/common/` (iCUE's built-ins load `../common/tools/...`);
+  - flat `translation.json` tables;
+  - unknown `os.platform` values such as `linux`.
 
 ---
 
@@ -100,6 +131,12 @@ EdgeHost is a macOS app that:
 
 ### 3.1 Workspace layout (logical crates)
 
+> **v0.2:** the tree below is the *eventual* shape. v1 starts with five crates:
+> `icuew-manifest`, `edge-layout`, `widget-runtime`, `apps/edgehost` and `apps/edgectl`. Everything else
+> (`icuew-package`, `edge-perms`, `edge-store`, `plugin-api`, `edge-display`, `edge-touch`, providers,
+> `icue-ws-compat`) starts as a module of `apps/edgehost` or `widget-runtime`. A module becomes a
+> crate when its interface has been stable for one milestone, or when a second consumer needs it.
+
 ```text
 icue-rs/
 ├── Cargo.toml                  # [workspace]
@@ -145,7 +182,7 @@ crates stay thin. Build speed: `lld` (via `-C link-arg=-fuse-ld=lld` in `.cargo/
 | Engine fallback | `RenderEngine` trait. A CEF back end (`cef` crate) is a possible later option. | Use only if the corpus shows WebKit gaps that matter (§6.2). |
 | Persistence | serde JSON files, schema-versioned, atomic rename | Small data, easy to read, diff-friendly. SQLite isn't needed. |
 | Async | `tokio` (providers, FS watch, add-in IPC); the UI thread stays on tao | Standard. |
-| Packaging | `cargo-bundle` or a hand-written `Info.plist`; Developer ID signing and notarization; `SMAppService` login item | |
+| Packaging | `cargo-bundle` or a hand-written `Info.plist`; Developer ID signing and notarization; `SMAppService` login item | Dock app (regular activation policy) plus an `NSStatusItem` menu-bar item (owner decision) |
 
 ---
 
@@ -219,6 +256,10 @@ authors are told about widgets iCUE would reject.
   `CGDisplayVendorNumber` / `CGDisplayModelNumber` (record the Edge's values in M0) **or** on the
   native mode 2560×720 or 720×2560. Persist the display by `CGDisplayCreateUUIDFromDisplayID` so
   re-plugging reattaches.
+- **Manual override (v0.2):** auto-detection is not the only path. `edgectl displays` lists
+  displays, and `--display <index|name>` (later a picker in the configurator) pins one, persisted by
+  display UUID. This covers hubs that alter the EDID, scaled modes, and rotated panels whose
+  `CGDisplayRotation` differs from the physical mounting.
 - Hot-plug: use `CGDisplayRegisterReconfigurationCallback`. On removal, hide the surface and suspend
   webviews (`isInspectable` off, timers throttled). On return, restore.
 - Orientation comes from `CGDisplayRotation`. A rotation change switches the layout to the portrait
@@ -229,8 +270,9 @@ authors are told about widgets iCUE would reject.
 - A borderless `NSWindow` exactly covering `CGDisplayBounds(edge)`. `collectionBehavior` is
   `canJoinAllSpaces | stationary | ignoresCycle | fullScreenAuxiliary`, and the level is `.normal`
   (configurable to `.floating`).
-- Pin the window to the Edge display so Mission Control and Stage Manager don't move it. Hide the
-  window from ⌘-Tab (`NSApp.setActivationPolicy(.accessory)`).
+- Pin the window to the Edge display so Mission Control and Stage Manager don't move it. The app itself
+  is a regular Dock app with a menu-bar item. The surface window is excluded from the Window menu
+  and Mission Control.
 - Optional keep-awake: an `IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep)`
   while the dashboard is active, with schedule-based dimming.
 - **Release mode** (iCUE: "is now functioning as a regular monitor"): a menu toggle closes the surface
@@ -288,8 +330,9 @@ WebSerial, WebUSB, some `getDisplayMedia` cases, the File System Access API, and
 Strategy:
 1. Static scan at import (§4.1) produces warnings.
 2. The compatibility corpus (§11.3) produces a pass/fail matrix per widget.
-3. If a significant share of real widgets fails, add the CEF engine behind `RenderEngine`, selectable
-   per widget (`engine = "chromium"` in the instance record). That is deliberately deferred.
+3. **v0.2: WebKit is the only engine for v1.** Known gaps are documented for widget authors. A second
+   engine (CEF) is reconsidered only if the corpus shows it is unavoidable, given its cost in binary
+   size, signing, update cadence and licensing.
 
 ### 6.3 Injected globals (document start, main frame only)
 
@@ -334,6 +377,15 @@ the same shim (steps 1–7) and a blank document. That context:
 
 Runtime pages therefore never evaluate defaults. They receive concrete values only, which matches F2.
 
+**v0.2 ordering:** the evaluation context waits for every requested provider's **snapshot** before it
+evaluates, so `plugins.Sensorsdataprovider.getDefaultSensorIdBlock('temperature')` resolves.
+Expressions may use only **blocking** plugin methods and synchronous module exports; async methods are
+documented as illegal in attributes.
+
+**Interim (M1):** with no store yet, the shim evaluates defaults in the runtime page at document start
+and retries module-dependent ones after module import. This is replaced in M2. The VU Meter sample shows
+why: its plugin-based defaults are `undefined` until providers exist.
+
 ### 6.5 Bridge protocol
 
 - JS → native: `window.webkit.messageHandlers.edgehost.postMessage({v:1, id, plugin, method, args})`.
@@ -376,13 +428,33 @@ pub trait Provider: Send + Sync {
   letter capitalised (`Sensorsdataprovider`).
 - **Fan-out.** One provider instance is shared by every widget instance. Signals are filtered per
   instance where the API is per-widget (Stream Deck `widgetId`) and broadcast otherwise.
-- **Out-of-process add-ins (third party).** An executable declared in
-  `~/Library/Application Support/EdgeHost/addins/<id>/addin.json` (descriptor and command). The add-in
-  is launched on demand and speaks JSON-RPC 2.0 over stdio. It is crash-isolated and restarted with
-  backoff. Custom namespaces such as `edgehost.homelab:Prometheus:1.0` let new widgets use new data;
-  iCUE widgets are unaffected.
+- **Third-party add-ins are Rhai scripts (v0.2, owner decision).** An add-in is a folder
+  `~/Library/Application Support/EdgeHost/addins/<id>/` holding `addin.toml` (provider descriptor:
+  module, name, version, methods, signals, properties, block methods, required capabilities) and
+  `main.rhai`. Each add-in runs in its own `rhai::Engine` on its own thread:
+  - **Sandboxed by default.** A script can call only the host functions registered for the
+    capabilities it declares and the user approved: for example `http_get` limited to declared hosts,
+    `read_file` limited to approved paths, `emit(signal, args…)`, `set_property(name, value)`,
+    `set_snapshot(value)`, `log(...)`. Raw process, filesystem and network access are not available.
+  - **Bounded.** `Engine::set_max_operations`, `set_max_call_levels`, `set_max_string_size` and
+    `set_max_array_size` apply, plus a wall-clock budget per call via `on_progress`. A script that
+    exceeds its limits is stopped and restarted with backoff.
+  - **Entry points:** `fn init(ctx)`, `fn call(method, args)` and `fn poll()` (on a declared interval,
+    for example 1 s for sensor-like data). Results map to the same bridge messages as built-in providers.
+  - Custom namespaces such as `edgehost.homelab:Prometheus:1.0` let new widgets use new data; iCUE
+    widgets are unaffected.
+  - Built-in providers stay in Rust. Rhai is for third-party and experimental providers, and a Rhai
+    add-in can **override** a stub (for example a community `fps` add-in).
 
 ### 7.2 Built-in providers on macOS
+
+> **v0.2 scope:**
+> - **v1:** `link`, `filesystem`, and `sensors` (CPU, GPU and memory load and power; temperatures
+>   best-effort via IOHIDEventSystem, which does not depend on the Edge).
+> - **v1.5:** `media`.
+> - **Unsupported stubs in v1:** `notifications`, `fps`, `deviceaction` and `streamdeck`. Their
+>   `_initialized` flags stay `false` and import shows "unsupported on macOS". A Rhai add-in may
+>   replace any stub.
 
 | Plugin (manifest string) | macOS back end | Fidelity / notes |
 |---|---|---|
@@ -436,7 +508,20 @@ where grants apply to a widget id.
 
 ---
 
+### 8.3 Phasing (v0.2)
+
+| Phase | Kinds | Behaviour |
+|---|---|---|
+| M3 | `url`, `file`, `folder`, `download` | Fully enforced, with tests. Tests prove `file://`, `data:` and `blob:` loads are blocked, and that the content rule list does not interfere with `icuew://`. |
+| M3 | `microphone`, `camera`, `screen` | Denied by default; prompting comes later. |
+| v1 | `application`, `local_fonts_access`, `speaker`, `self_signed_certificate`, `clipboard_read_write` | Recorded but not enforced; the user is warned at install. |
+
 ## 9. Touch (`edge-touch`)
+
+> **v0.2:** this design is **gated on M0**. If macOS already delivers Edge touches as clicks on the
+> Edge display, M4 starts with plain `NSEvent` handling and seize mode is not needed. If it does not,
+> Input Monitoring becomes a stated requirement for interactive widgets, with honest UI copy. Cursor
+> mode (Accessibility) remains a fallback, not the default.
 
 ### 9.1 Problem
 
@@ -546,18 +631,16 @@ growth under 50 MB, no provider leaks).
 
 ---
 
-## 12. Milestones
+## 12. Milestones (v0.2)
 
-| M | Deliverable | Exit criteria |
-|---|---|---|
-| **M0 Recon** (½ day with hardware) | Fill §13's "verify" items with the Edge connected: `ioreg -p IOUSB -l -w0`, `hidutil list`, `system_profiler SPDisplaysDataType`, EDID dump. Find out whether macOS maps touch to the Edge. Check for USB control interfaces (brightness, rotation). Optionally capture Windows iCUE behaviour with `rea` on a Windows host. | `docs/research/edge-hardware.md` with VID/PID, HID report descriptor, EDID ids and touch behaviour |
-| **M1 Surface + 1 widget** | `edge-display`, `widget-runtime` minimal shim (properties, `iCUE`, `device`, events), `icuew://` scheme, `edgectl run-one <dir>` | The Corsair Labs AirQuality and Doodle widgets render at L size on the Edge |
-| **M2 Packages + layout + configurator** | `icuew-package` validator, store, multi-instance pages, configurator library/layout/settings (all 11 controls), per-instance data stores | The `icuewidget init` scaffold and 5 corpus widgets install, configure and persist across restarts |
-| **M3 Add-ins + permissions** | `plugin-api`, sensors, media, link and filesystem providers, permission engine with content rules, out-of-process add-in host | Sensor and now-playing corpus widgets work. A denied `url` permission silently blocks fetch. |
-| **M4 Touch** | `edge-touch` seize mode, calibration wizard, direct and cursor delivery, swipe pages | Interactive widgets work by touch in landscape and portrait, and the cursor never jumps |
-| **M5 Polish** | Notifications/FPS best effort, Stream Deck stub, port-50123 compatibility (only if iCUE isn't running), login item, signing and notarization, Edge brightness/rotation if M0 found a control channel | Corpus pass rate ≥ 90% for widgets whose plugins are supported. 24-hour soak passes. |
-
----
+| M | Deliverable | Exit criteria | Status |
+|---|---|---|---|
+| **M0 Recon** (½ day with hardware) | `docs/research/edge-hardware.md`: VID/PID, HID report descriptor (`hidutil list`, `ioreg -p IOUSB -l -w0`), EDID ids and `CGDisplay` info, whether macOS maps touch to the Edge, whether `kIOHIDOptionsTypeSeizeDevice` stops the cursor, and whether there is a USB control channel for brightness and rotation. | The file exists. **This gates M4 and Edge-specific display identity only.** | Waiting for hardware |
+| **M1 Surface + 1 widget** | `edge-layout`, `icuew-manifest`, `widget-runtime` (shim, `icuew://`, per-instance data store), `edgectl validate` and `run-one` | Corsair Labs samples render at L size | **Done** (6/6 widgets boot in a stand-in window) |
+| **M2 Packages, store, layout** | `.icuewidget` import and validation (CLI rules), store, multi-instance pages (config file plus `edgectl` property editing), **evaluation-context webview** producing concrete defaults, display picker, `apps/edgehost` app (Dock and menu bar) running the saved layout | `icuewidget init` scaffold and 5 corpus widgets install, configure through `edgectl`, and persist across restarts | |
+| **M3 Add-ins + core providers** | Provider contract, **Rhai add-in host**, `link`, `filesystem`, basic `sensors`, unsupported stubs, permissions phase M3 (§8.3) | Sensor corpus widgets show live data. A denied `url` silently blocks fetch. A sample Rhai add-in provides a custom namespace. | |
+| **M4 Touch + configurator** | Touch scoped by M0's findings; configurator UI (library, layout editor, the 11 control types, permissions) | Interactive widgets work by touch. All instance settings are editable in the UI. | |
+| **M5 / v1.5** | `media` provider (Now Playing helper), packaging and notarization, login item, port-50123 compatibility (optional), Edge brightness and rotation if M0 found a channel | Corpus pass rate ≥ 90% for widgets whose plugins are supported. 24-hour soak passes. | |
 
 ## 13. Open questions and things to verify
 
@@ -577,8 +660,7 @@ growth under 50 MB, no provider leaks).
    (§6.2) ahead of M4.
 8. **Isolation level for Hopper and Ghidra follow-ups** (decompile of `DashLCDScreenManager::isDashLCDDevice`).
    Optional, as it doesn't block any milestone.
-9. **Owner preferences:** product name, menu-bar-only vs Dock app, minimum macOS (proposed **14 Sonoma**,
-   needed for `WKWebsiteDataStore(forIdentifier:)`).
+9. ~~Owner preferences~~ **Resolved (v0.2):** EdgeHost; Dock and menu bar; macOS 14 minimum; Rhai add-ins.
 
 ---
 
