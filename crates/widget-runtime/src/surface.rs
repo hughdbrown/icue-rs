@@ -319,6 +319,7 @@ impl Surface {
             temperature_unit: TemperatureUnit::Celsius,
             base_url: format!("{SCHEME}://{}/", instance.id.simple()),
             escape_closes: self.opts.escape_closes,
+            debug_input: std::env::var_os("EDGEHOST_DEBUG_INPUT").is_some(),
         }
     }
 

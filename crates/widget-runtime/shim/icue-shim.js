@@ -87,6 +87,24 @@
 		};
 	}
 
+	// Input diagnostics (EDGEHOST_DEBUG_INPUT=1): log what each tap actually delivers.
+	if (P.debugInput) {
+		const describe = (t) =>
+			t && t.tagName ? `${t.tagName.toLowerCase()}${t.id ? `#${t.id}` : ""}${t.textContent ? ` "${t.textContent.trim().slice(0, 12)}"` : ""}` : String(t);
+		for (const type of ["pointerdown", "pointerup", "pointercancel", "mousedown", "mouseup", "click", "touchstart", "touchend"]) {
+			window.addEventListener(
+				type,
+				(e) =>
+					post({
+						k: "console",
+						level: "input",
+						msg: `${type} ${e.pointerType || ""} x=${Math.round(e.clientX ?? -1)} y=${Math.round(e.clientY ?? -1)} buttons=${e.buttons ?? ""} trusted=${e.isTrusted} → ${describe(e.target)}`,
+					}),
+				true,
+			);
+		}
+	}
+
 	// Typing needs EdgeHost to be the active app; ask for it when a text field gains focus.
 	const EDITABLE = /^(INPUT|TEXTAREA|SELECT)$/;
 	window.addEventListener(

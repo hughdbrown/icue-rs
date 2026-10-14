@@ -57,6 +57,8 @@ pub struct ShimConfig {
     pub base_url: String,
     /// Developer runs only: pressing Escape in the widget asks the host to close.
     pub escape_closes: bool,
+    /// Log pointer and mouse events to the host (`EDGEHOST_DEBUG_INPUT=1`).
+    pub debug_input: bool,
 }
 
 /// What the injected script does.
@@ -86,6 +88,7 @@ struct Payload<'a> {
     plugins: Vec<String>,
     escape_closes: bool,
     proxy: Vec<UrlPermission>,
+    debug_input: bool,
 }
 
 #[derive(Serialize)]
@@ -141,7 +144,7 @@ pub fn render(
         fps_limit: cfg.fps_limit,
         escape_closes: cfg.escape_closes,
         preview: cfg.is_preview,
-        widget_id: cfg.instance_id.hyphenated().to_string(),
+        widget_id: def.manifest.id.to_string(),
         instance_id: cfg.instance_id.hyphenated().to_string(),
         device_id: cfg.device_id.hyphenated().to_string(),
         temp_unit: cfg.temperature_unit.symbol(),
@@ -164,6 +167,7 @@ pub fn render(
             .map(icuew_manifest::PluginRef::facade_name)
             .collect(),
         proxy: def.manifest.url_permissions(),
+        debug_input: cfg.debug_input,
     };
     let json = script_safe(&serde_json::to_string(&payload)?);
     Ok(SHIM_SOURCE.replacen(PAYLOAD_TOKEN, &json, 1))
@@ -198,6 +202,7 @@ mod tests {
             temperature_unit: TemperatureUnit::Celsius,
             base_url: "icuew://abc/".into(),
             escape_closes: false,
+            debug_input: false,
         }
     }
 
@@ -216,6 +221,7 @@ mod tests {
             !js.contains("Greeting.defaultHeadline()"),
             "runtime pages carry no expressions"
         );
+        assert!(js.contains(r#""widgetId":"dev.edgehost.hello-edge""#));
         assert!(js.contains(r#""instanceId":"00000000-0000-0000-0000-000000000001""#));
         assert!(js.contains(r#""url":"icuew://abc/modules/Greeting.mjs","global":"Greeting""#));
         assert!(js.contains(r#""name":"textColor""#));
