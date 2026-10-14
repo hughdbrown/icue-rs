@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>tr('War Thunder HUD')</title>
+		<link rel="icon" type="image/svg+xml" href="resources/icon.svg" />
+		<meta name="x-icue-property" content="playerName" data-label="tr('Your player name (highlights your kill-feed lines)')" data-type="textfield" data-default="''" />
+		<meta name="x-icue-property" content="units" data-label="tr('Units')" data-type="tab-buttons" data-default="'metric'" data-values="[{'key':'metric','value':'Metric'},{'key':'imperial','value':'Imperial'}]" />
+		<meta name="x-icue-property" content="pollMs" data-label="tr('Poll interval (flight data)')" data-type="slider" data-default="200" data-min="100" data-max="1000" data-step="50" data-unit-label="'ms'" />
+		<meta name="x-icue-property" content="fuelWarnMinutes" data-label="tr('Low-fuel warning')" data-type="slider" data-default="3" data-min="1" data-max="15" data-step="1" data-unit-label="'min'" />
+		<meta name="x-icue-property" content="waterTempLimit" data-label="tr('Water temperature limit')" data-type="slider" data-default="110" data-min="80" data-max="140" data-step="1" data-unit-label="'°C'" />
+		<meta name="x-icue-property" content="oilTempLimit" data-label="tr('Oil temperature limit')" data-type="slider" data-default="120" data-min="80" data-max="160" data-step="1" data-unit-label="'°C'" />
+		<meta name="x-icue-property" content="criticalAoA" data-label="tr('Critical angle of attack')" data-type="slider" data-default="15" data-min="8" data-max="30" data-step="1" data-unit-label="'°'" />
+		<meta name="x-icue-property" content="showChat" data-label="tr('Show chat')" data-type="switch" data-default="true" />
+		<meta name="x-icue-property" content="textColor" data-label="tr('Text Color')" data-type="color" data-default="'#E8ECF2'" />
+		<meta name="x-icue-property" content="accentColor" data-label="tr('Accent Color')" data-type="color" data-default="'#F2A900'" />
+		<meta name="x-icue-property" content="backgroundColor" data-label="tr('Background Color')" data-type="color" data-default="'#0E1117'" />
+		<meta name="x-icue-property" content="warningColor" data-label="tr('Warning Color')" data-type="color" data-default="'#FF4D4D'" />
+		<script type="application/json" id="x-icue-groups">
+			[
+				{ "title": "tr('Player')", "properties": ["playerName", "units", "pollMs", "showChat"], "info": "tr('Used only to highlight lines in the kill feed and to count your own kills and deaths.')" },
+				{ "title": "tr('Thresholds')", "properties": ["fuelWarnMinutes", "waterTempLimit", "oilTempLimit", "criticalAoA"] },
+				{ "title": "tr('Appearance')", "properties": ["textColor", "accentColor", "backgroundColor", "warningColor"] }
+			]
+		</script>
+		<link rel="stylesheet" href="styles/warthunder-hud.css" />
+	</head>
+	<body>
+		<main id="root" class="state-wait">
+			<section id="banner">
+				<div id="banner-title">Waiting for War Thunder on localhost:8111</div>
+				<div id="banner-hint">Start the game and make sure it is running; the telemetry server only exists while War Thunder is open.</div>
+			</section>
+
+			<section id="vehicle" class="panel">
+				<div id="warnings"></div>
+
+				<div id="air" class="cards">
+					<div id="c-ias" class="card core big"><div class="lbl">IAS</div><div class="val"><span id="v-ias">—</span><span id="u-ias" class="unit"></span></div></div>
+					<div id="c-alt" class="card core big"><div class="lbl">Altitude</div><div class="val"><span id="v-alt">—</span><span id="u-alt" class="unit"></span></div></div>
+					<div id="c-vs" class="card extra"><div class="lbl">Vertical speed</div><div class="val"><span id="v-vs">—</span><span id="u-vs" class="unit"></span></div></div>
+					<div id="c-g" class="card core"><div class="lbl">G-load</div><div class="val"><span id="v-g">—</span><span class="unit">G</span></div></div>
+					<div id="c-aoa" class="card core"><div class="lbl">AoA / stall margin</div><div class="val"><span id="v-aoa">—</span><span class="unit">°</span></div><div class="bar"><i id="b-aoa"></i></div></div>
+					<div id="c-tas" class="card extra"><div class="lbl">TAS</div><div class="val"><span id="v-tas">—</span><span id="u-tas" class="unit"></span></div></div>
+					<div id="c-mach" class="card extra"><div class="lbl">Mach</div><div class="val"><span id="v-mach">—</span></div></div>
+					<div id="c-thr" class="card extra"><div class="lbl">Throttle</div><div class="val"><span id="v-thr">—</span><span class="unit">%</span></div><div class="bar"><i id="b-thr"></i></div></div>
+					<div id="c-rpm" class="card extra"><div class="lbl">RPM</div><div class="val"><span id="v-rpm">—</span></div></div>
+					<div id="c-pow" class="card extra"><div class="lbl">Power / manifold</div><div class="val"><span id="v-pow">—</span><span class="unit">hp</span></div><div class="sub" id="s-man"></div></div>
+					<div id="c-water" class="card core"><div class="lbl">Water temp</div><div class="val"><span id="v-water">—</span><span id="u-water" class="unit"></span></div><div class="sub" id="s-water"></div></div>
+					<div id="c-oil" class="card core"><div class="lbl">Oil temp</div><div class="val"><span id="v-oil">—</span><span id="u-oil" class="unit"></span></div><div class="sub" id="s-oil"></div></div>
+					<div id="c-fuel" class="card core"><div class="lbl">Fuel</div><div class="val"><span id="v-fuel">—</span><span id="u-fuel" class="unit"></span></div><div class="sub" id="s-fuel"></div></div>
+					<div id="c-cfg" class="card extra"><div class="lbl">Gear / flaps / airbrake</div><div class="val small"><span id="v-cfg">—</span></div></div>
+				</div>
+
+				<div id="ground" class="cards" hidden>
+					<div id="c-gspeed" class="card core big"><div class="lbl">Speed</div><div class="val"><span id="v-gspeed">—</span><span id="u-gspeed" class="unit"></span></div></div>
+					<div id="c-ggear" class="card core"><div class="lbl">Gear</div><div class="val"><span id="v-ggear">—</span></div></div>
+					<div id="c-grpm" class="card core"><div class="lbl">RPM</div><div class="val"><span id="v-grpm">—</span></div></div>
+					<div id="c-gcruise" class="card extra"><div class="lbl">Cruise control</div><div class="val"><span id="v-gcruise">—</span></div></div>
+					<div id="c-gstab" class="card extra"><div class="lbl">Stabilizer</div><div class="val"><span id="v-gstab">—</span></div></div>
+					<div id="c-gcrew" class="card core"><div class="lbl">Crew</div><div class="val"><span id="v-gcrew">—</span></div></div>
+					<div id="c-gflags" class="card extra wide"><div class="lbl">Flags</div><div class="val small"><span id="v-gflags">—</span></div></div>
+				</div>
+			</section>
+
+			<section id="events" class="panel">
+				<div class="head">
+					<span class="title">Kill feed</span>
+					<span class="counts"><b id="cnt-kills">0</b> K &nbsp;<b id="cnt-assists">0</b> A &nbsp;<b id="cnt-deaths">0</b> D</span>
+					<span id="mission" class="mission"></span>
+				</div>
+				<div id="feed-list" class="list"></div>
+			</section>
+
+			<section id="chatbox" class="panel">
+				<div class="head"><span class="title">Chat</span></div>
+				<div id="chat-list" class="list"></div>
+			</section>
+		</main>
+		<script src="scripts/warthunder-hud.js"></script>
+	</body>
+</html>

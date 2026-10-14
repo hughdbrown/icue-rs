@@ -1,0 +1,23 @@
+{
+	"en": {
+		"translation": {
+			"War Thunder HUD": "War Thunder HUD",
+			"Your player name (highlights your kill-feed lines)": "Your player name (highlights your kill-feed lines)",
+			"Units": "Units",
+			"Poll interval (flight data)": "Poll interval (flight data)",
+			"Low-fuel warning": "Low-fuel warning",
+			"Water temperature limit": "Water temperature limit",
+			"Oil temperature limit": "Oil temperature limit",
+			"Critical angle of attack": "Critical angle of attack",
+			"Show chat": "Show chat",
+			"Accent Color": "Accent Color",
+			"Background Color": "Background Color",
+			"Warning Color": "Warning Color",
+			"Text Color": "Text Color",
+			"Player": "Player",
+			"Thresholds": "Thresholds",
+			"Appearance": "Appearance",
+			"Used only to highlight lines in the kill feed and to count your own kills and deaths.": "Used only to highlight lines in the kill feed and to count your own kills and deaths."
+		}
+	}
+}

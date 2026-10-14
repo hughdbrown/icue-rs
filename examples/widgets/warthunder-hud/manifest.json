@@ -1,0 +1,14 @@
+{
+	"author": "EdgeHost",
+	"id": "dev.edgehost.warthunder-hud",
+	"name": "War Thunder HUD",
+	"description": "Flight and vehicle telemetry, kill feed and chat from War Thunder's local telemetry server (localhost:8111).",
+	"version": "0.1.0",
+	"preview_icon": "resources/icon.svg",
+	"min_app_version": "5.47",
+	"min_framework_version": "1.0.0",
+	"os": [{ "platform": "windows" }, { "platform": "mac" }],
+	"supported_devices": [{ "type": "dashboard_lcd" }],
+	"interactive": true,
+	"permissions": [{ "type": "url", "domain": "localhost", "port": 8111 }]
+}
