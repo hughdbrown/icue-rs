@@ -15,7 +15,6 @@ edge-store.workspace = true
 icuew-manifest.workspace = true
 tao.workspace = true
 tray-icon = "0.26"
-uuid.workspace = true
 widget-runtime.workspace = true
 
 [lints]

@@ -621,7 +621,6 @@ dependencies = [
  "icuew-manifest",
  "tao",
  "tray-icon",
- "uuid",
  "widget-runtime",
 ]
 
