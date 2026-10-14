@@ -17,7 +17,7 @@ CoreGraphics mode dump (`CGDisplayCopyAllDisplayModes`), and `displayplacer list
 | Through the iVANKY dock | The dock's video path drops the EDID. macOS shows `Non-PnP`, `MaxW = 1920`, a 148.5 MHz pixel-clock cap and 1024×768. **Not usable; connect the Edge directly.** USB (touch and control) still works through the dock. |
 | Display name as seen by tao | `Monitor #60672` (= 0xED00), **not** "XENEON EDGE". Detection must use CoreGraphics vendor and model numbers (`CGDisplayVendorNumber` = 0x0e58, `CGDisplayModelNumber` = 0xed00), with size as a fallback. |
 | Persistent display UUID | `72A30287-05E7-4AC7-8542-BAE7F8AA0392` (this unit, on this Mac) |
-| Does macOS map touch to the Edge? | **Pending:** needs a person to tap the panel while `edgectl run-one` is showing (see the README). |
+| Does macOS map touch to the Edge? | **Yes** (verified 2026-10-13 by tapping a button in `hello-edge` on the Edge; the click landed in the Edge's web view). macOS turns the panel's absolute-mouse reports into clicks on the Edge display, so no seize, Input Monitoring or calibration is needed for taps. |
 | Does `kIOHIDOptionsTypeSeizeDevice` stop the cursor? | **Pending (M4 spike).** |
 
 ## Setup instructions for users (verified)
@@ -36,9 +36,10 @@ cannot pass its EDID.
 1. **Display detection:** match vendor 0x0e58 and model 0xed00 first, then the 2560×720 / 720×2560 native
    size, then the manual `--display` pin. If the Edge is found in a non-native mode, warn and print the
    `displayplacer` hint instead of silently using a stand-in window.
-2. **Touch (M4):** the panel already emits an absolute-mouse report, so macOS probably moves the cursor
-   to an absolute position. Whether that lands on the Edge depends on the pending test. Seizing the
-   **digitizer and mouse interfaces** of 0x27c0:0x0859 will be needed if it does not.
+2. **Touch (M4):** taps already arrive as clicks on the Edge. What remains is (a) swipe and multi-touch
+   gestures, since only single-pointer mouse events arrive today, and (b) cursor hygiene: hide the cursor
+   or warp it back after an Edge tap. Seizing the digitizer (Input Monitoring) is needed only if M4
+   wants true multi-touch.
 3. **Control channel:** 0x1b1c:0x1d0d can be opened from user space with IOHIDManager (no driver). Its
    commands are unknown; treat it as a future, optional feature.
 

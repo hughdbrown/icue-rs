@@ -518,6 +518,10 @@ where grants apply to a widget id.
 
 ## 9. Touch (`edge-touch`)
 
+> **M0 result (2026-10-13):** macOS already delivers Edge taps as clicks on the Edge display (see
+> `docs/research/edge-hardware.md`). M4 therefore starts from plain web-view input. Seize mode,
+> calibration and synthetic events are needed only for multi-touch gestures.
+>
 > **v0.2:** this design is **gated on M0**. If macOS already delivers Edge touches as clicks on the
 > Edge display, M4 starts with plain `NSEvent` handling and seize mode is not needed. If it does not,
 > Input Monitoring becomes a stated requirement for interactive widgets, with honest UI copy. Cursor
