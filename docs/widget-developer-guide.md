@@ -269,6 +269,11 @@ Verified on a XENEON EDGE (macOS, 2026-10):
 - **There are no `touchstart`/`touchmove` events and no multi-touch.** A finger drag is a mouse drag
   (`pointermove` with `buttons === 1`). For drag interactions (scrubbing, drawing), use pointer
   events with `setPointerCapture` and `touch-action: none` on that element.
+- **Horizontal swipes change the dashboard page.** A quick left/right drag of 160 panel px or more
+  (at most 800 ms, mostly horizontal) goes to the next/previous page, and the click it would produce
+  is swallowed. A drag is left to your widget when it starts in an `<input>`, `<textarea>`,
+  `<select>` or contentEditable element, or on an element (or descendant of one) with
+  `touch-action: none` (or `pan-y` without `pan-x`) or the attribute `data-edgehost-no-swipe`.
 - Taps reach your widget even when another app is frontmost: EdgeHost accepts the first click.
 - **Make targets finger-sized**: at least 44 px tall, and more for frequent actions. Edge touches are
   less precise than a mouse.

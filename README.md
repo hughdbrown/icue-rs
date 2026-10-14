@@ -43,6 +43,20 @@ cargo run -p edgectl -- run-one path/to/widget --windowed --slot S --col 2 --row
 Widgets that load iCUE's shared `../common/...` folder need it beside the widget directory, or passed
 with `--common-dir`. Press Esc to close the borderless Edge window.
 
+### Pages
+
+The EdgeHost app (`cargo run -p edgehost`) shows one page of widgets at a time. Add pages in
+**Configure Widgets…** (menu-bar icon) or with `edgectl layout add --page N`. To change the page:
+
+- **Swipe** left (next) or right (previous) on the Edge: a quick horizontal drag of about 2 cm,
+  anywhere on a widget or the background. Drags that start in a text field or slider, or on a part
+  of a widget that tracks drags itself (piano keys, chart scrubbing), stay with the widget.
+- **Tap a dot** in the strip at the bottom centre; it appears when there are two or more pages.
+- **Menu-bar icon → Next Page / Previous Page.** The menu's first line shows "Page 2 of 3".
+
+Pages wrap around. The configurator's page tabs only choose which page you edit; they do not
+change the Edge.
+
 ## Development
 
 ```bash
