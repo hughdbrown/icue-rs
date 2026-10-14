@@ -2,11 +2,18 @@
 //!
 //! `shim/icue-shim.js` is a function of one argument, the payload; [`render`] serialises the
 //! payload for a widget instance and substitutes it for the `__PAYLOAD__` token.
+//!
+//! Two modes ([`ShimMode`]):
+//! - **Runtime**: the widget page gets concrete property values from Rust and never evaluates
+//!   attribute expressions.
+//! - **Evaluate**: a hidden page with the same globals imports the manifest modules, evaluates every
+//!   `data-default` expression and posts the results back (`{k: "evaluated", values}`).
 
 use std::collections::BTreeMap;
 
-use icuew_manifest::WidgetDef;
+use icuew_manifest::{ControlKind, WidgetDef};
 use serde::Serialize;
+use serde_json::Value;
 use uuid::Uuid;
 
 const SHIM_SOURCE: &str = include_str!("../shim/icue-shim.js");
@@ -52,9 +59,20 @@ pub struct ShimConfig {
     pub escape_closes: bool,
 }
 
+/// What the injected script does.
+#[derive(Debug, Clone, Copy)]
+pub enum ShimMode<'a> {
+    /// Show the widget with these property values (missing keys become `undefined`).
+    Runtime(&'a BTreeMap<String, Value>),
+    /// Evaluate the property defaults and post them to the host.
+    Evaluate,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Payload<'a> {
+    mode: &'static str,
+    values: Option<&'a BTreeMap<String, Value>>,
     lang: &'a str,
     fps_limit: u32,
     preview: bool,
@@ -74,6 +92,8 @@ struct Payload<'a> {
 struct PropPayload<'a> {
     name: &'a str,
     default_expr: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kind: Option<ControlKind>,
 }
 
 #[derive(Serialize)]
@@ -87,7 +107,15 @@ struct ModulePayload {
 /// # Errors
 ///
 /// Only if payload serialisation fails, which would indicate a bug.
-pub fn render(def: &WidgetDef, cfg: &ShimConfig) -> Result<String, serde_json::Error> {
+pub fn render(
+    def: &WidgetDef,
+    cfg: &ShimConfig,
+    mode: ShimMode<'_>,
+) -> Result<String, serde_json::Error> {
+    let (mode_name, values, evaluating) = match mode {
+        ShimMode::Runtime(values) => ("runtime", Some(values), false),
+        ShimMode::Evaluate => ("evaluate", None, true),
+    };
     let modules = def
         .manifest
         .modules
@@ -106,6 +134,8 @@ pub fn render(def: &WidgetDef, cfg: &ShimConfig) -> Result<String, serde_json::E
         })
         .collect();
     let payload = Payload {
+        mode: mode_name,
+        values,
         lang: &cfg.language,
         fps_limit: cfg.fps_limit,
         escape_closes: cfg.escape_closes,
@@ -120,7 +150,8 @@ pub fn render(def: &WidgetDef, cfg: &ShimConfig) -> Result<String, serde_json::E
             .iter()
             .map(|p| PropPayload {
                 name: p.name.as_str(),
-                default_expr: p.default_expr(),
+                default_expr: p.default_expr().filter(|_| evaluating),
+                kind: evaluating.then_some(p.kind),
             })
             .collect(),
         tr: def.translations.table(&cfg.language),
@@ -175,11 +206,24 @@ mod tests {
 
     #[test]
     fn renders_payload_once() {
-        let js = render(&def(), &cfg()).unwrap();
+        let values = BTreeMap::from([("textColor".to_owned(), Value::from("#123456"))]);
+        let js = render(&def(), &cfg(), ShimMode::Runtime(&values)).unwrap();
         assert!(!js.contains(PAYLOAD_TOKEN));
+        assert!(js.contains(r##""mode":"runtime","values":{"textColor":"#123456"}"##));
+        assert!(
+            !js.contains("Greeting.defaultHeadline()"),
+            "runtime pages carry no expressions"
+        );
         assert!(js.contains(r#""instanceId":"00000000-0000-0000-0000-000000000001""#));
         assert!(js.contains(r#""url":"icuew://abc/modules/Greeting.mjs","global":"Greeting""#));
         assert!(js.contains(r#""name":"textColor""#));
+    }
+
+    #[test]
+    fn evaluate_mode_carries_expressions() {
+        let js = render(&def(), &cfg(), ShimMode::Evaluate).unwrap();
+        assert!(js.contains(r#""mode":"evaluate","values":null"#));
+        assert!(js.contains(r#""defaultExpr":"Greeting.defaultHeadline()""#));
     }
 
     #[test]

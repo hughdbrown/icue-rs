@@ -3,10 +3,16 @@
 //! - [`shim`] renders the script injected at document start, which recreates the globals iCUE
 //!   provides (`iCUE`, `device`, `uniqueId`, property globals, `tr`, `iCUE_initialized`, …).
 //! - [`assets`] serves a widget's files over the `icuew://` scheme without escaping its directory.
-//! - [`host`] opens the Edge surface (or a scaled stand-in window) and runs widgets in it.
+//! - [`surface`] opens the Edge surface (or a scaled stand-in window) and hosts widget views.
+//! - [`display`] describes connected displays (including EDID ids) for selection.
+//! - [`host`] implements `edgectl run-one`.
 
 pub mod assets;
+pub mod display;
 pub mod host;
 pub mod shim;
+pub mod surface;
 
+pub use display::list_displays;
 pub use host::{RunOptions, run_one};
+pub use surface::{EventSink, RuntimeEvent, Surface, SurfaceOptions, WidgetInstance};

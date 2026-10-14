@@ -76,20 +76,12 @@
 	}
 
 	// Attribute expressions see a synchronous tr(), as iCUE resolves them to plain strings.
-	const evaluate = (expr) =>
-		new Function("tr", `"use strict"; return (${expr});`)(trSync);
+	const evaluate = (expr) => new Function("tr", `"use strict"; return (${expr});`)(trSync);
+	const own = (object, key) => object != null && Object.prototype.hasOwnProperty.call(object, key);
 
-	// Defaults that reference manifest modules (e.g. CitySearch.getDefault()) cannot be evaluated
-	// until those modules are imported; retry them during boot.
-	const deferred = [];
+	// Runtime pages receive concrete values; anything missing is undefined, as in iCUE.
 	for (const p of P.props) {
-		window[p.name] = undefined;
-		if (p.defaultExpr == null) continue;
-		try {
-			window[p.name] = evaluate(p.defaultExpr);
-		} catch (_) {
-			deferred.push(p);
-		}
+		window[p.name] = own(P.values, p.name) ? P.values[p.name] : undefined;
 	}
 
 	const IDENT = /^[A-Za-z_$][\w$]*$/;
@@ -115,10 +107,7 @@
 		}
 	};
 
-	let booted = false;
-	const boot = async () => {
-		if (booted) return;
-		booted = true;
+	const importModules = async () => {
 		for (const m of P.modules) {
 			try {
 				const ns = await import(m.url);
@@ -127,13 +116,55 @@
 				console.error(`module ${m.url} failed to load:`, e);
 			}
 		}
-		for (const p of deferred) {
+	};
+
+	const EVALUATE_TIMEOUT_MS = 10000;
+	const withTimeout = (promise, ms) =>
+		Promise.race([
+			promise,
+			new Promise((_, reject) => setTimeout(() => reject(new Error(`timed out after ${ms} ms`)), ms)),
+		]);
+
+	// Evaluate mode (hidden page): compute defaults after modules (and, from M3, provider
+	// snapshots) are available, then report them. Values that JSON cannot carry are dropped.
+	const evaluateDefaults = async () => {
+		await importModules();
+		const values = {};
+		for (const p of P.props) {
+			if (p.defaultExpr == null) continue;
 			try {
-				window[p.name] = evaluate(p.defaultExpr);
+				let value = evaluate(p.defaultExpr);
+				// search-combobox defaults are provider functions that may return a promise of
+				// [key, displayText]; iCUE calls them and stores the key.
+				if (typeof value === "function") value = value();
+				if (value && typeof value.then === "function") value = await withTimeout(value, EVALUATE_TIMEOUT_MS);
+				if (p.kind === "search-combobox" && Array.isArray(value)) value = value[0];
+				if (value !== undefined) {
+					values[p.name] = value;
+					window[p.name] = value;
+				}
 			} catch (e) {
 				console.warn(`default for property ${p.name} could not be evaluated: ${fmt(e)}`);
 			}
 		}
+		let plain = {};
+		try {
+			plain = JSON.parse(JSON.stringify(values));
+		} catch (e) {
+			console.error(`defaults are not serialisable: ${fmt(e)}`);
+		}
+		post({ k: "evaluated", values: plain });
+	};
+
+	let booted = false;
+	const boot = async () => {
+		if (booted) return;
+		booted = true;
+		if (P.mode === "evaluate") {
+			await evaluateDefaults();
+			return;
+		}
+		await importModules();
 		window.iCUE_initialized = true;
 		callHook("icueEvents", "onICUEInitialized");
 		callHook("icueEvents", "onDataUpdated");

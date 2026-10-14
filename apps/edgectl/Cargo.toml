@@ -11,7 +11,11 @@ version.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 edge-layout.workspace = true
+edge-store.workspace = true
 icuew-manifest.workspace = true
+serde_json.workspace = true
+tao.workspace = true
+tempfile.workspace = true
 widget-runtime.workspace = true
 
 [lints]

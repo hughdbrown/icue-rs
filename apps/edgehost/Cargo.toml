@@ -1,0 +1,22 @@
+[package]
+name = "edgehost"
+description = "EdgeHost: iCUE HTML widget dashboard for the XENEON EDGE on macOS"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+edge-layout.workspace = true
+edge-store.workspace = true
+icuew-manifest.workspace = true
+tao.workspace = true
+tray-icon = "0.26"
+uuid.workspace = true
+widget-runtime.workspace = true
+
+[lints]
+workspace = true

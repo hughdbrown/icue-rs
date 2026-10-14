@@ -27,6 +27,8 @@ function run(payload, widgetScript = "") {
 }
 
 const BASE = {
+	mode: "runtime",
+	values: { textColor: "#FFFFFF", size: 42, label: "Hallo" },
 	lang: "de",
 	fpsLimit: 30,
 	preview: false,
@@ -34,27 +36,50 @@ const BASE = {
 	instanceId: "i-1",
 	deviceId: "d-1",
 	tempUnit: "°C",
-	props: [
-		{ name: "textColor", defaultExpr: "'#FFFFFF'" },
-		{ name: "size", defaultExpr: "40 + 2" },
-		{ name: "label", defaultExpr: "tr('Hello')" },
-		{ name: "fromModule", defaultExpr: "Later.value()" },
-		{ name: "none", defaultExpr: null },
-	],
+	props: [{ name: "textColor" }, { name: "size" }, { name: "label" }, { name: "none" }],
 	tr: { Hello: "Hallo" },
 	modules: [],
 	plugins: ["Sensorsdataprovider"],
 };
 
-test("globals exist before widget scripts run", () => {
+const EVALUATE = {
+	...BASE,
+	mode: "evaluate",
+	values: null,
+	props: [
+		{ name: "textColor", defaultExpr: "'#FFFFFF'" },
+		{ name: "size", defaultExpr: "40 + 2" },
+		{ name: "label", defaultExpr: "tr('Hello')" },
+		{ name: "fromModule", defaultExpr: "Later.value()" },
+		{ name: "broken", defaultExpr: "plugins.Missing.getBlock()" },
+		{ name: "none", defaultExpr: null },
+	],
+};
+
+test("runtime globals exist before widget scripts run", () => {
 	const { context } = run(BASE, "globalThis.seen = [textColor, size, label, uniqueId, device.deviceId];");
 	assert.deepEqual(plain(context.seen), ["#FFFFFF", 42, "Hallo", "i-1", "d-1"]);
 	assert.equal(context.iCUE.iCUELanguage, "de");
 	assert.equal(context.iCUE.defaultTemperatureUnit(), "°C");
 	assert.equal(context.iCUE_initialized, false);
 	assert.equal(context.pluginSensorsdataprovider_initialized, false);
-	assert.equal(context.fromModule, undefined);
 	assert.ok("none" in context);
+	assert.equal(context.none, undefined);
+});
+
+test("evaluate mode posts concrete defaults and never runs lifecycle hooks", async () => {
+	const { context, posted, listeners } = run(
+		EVALUATE,
+		`globalThis.Later = { value: () => 'late' };
+		 globalThis.hooks = 0;
+		 icueEvents = { onICUEInitialized: () => hooks++ };`,
+	);
+	listeners.DOMContentLoaded();
+	await new Promise((r) => setImmediate(r));
+	const evaluated = posted.find((m) => m.k === "evaluated");
+	assert.deepEqual(evaluated.values, { textColor: "#FFFFFF", size: 42, label: "Hallo", fromModule: "late" });
+	assert.equal(context.hooks, 0);
+	assert.ok(!posted.some((m) => m.k === "booted"));
 });
 
 test("boot fires lifecycle hooks once, after DOMContentLoaded", async () => {
@@ -70,14 +95,6 @@ test("boot fires lifecycle hooks once, after DOMContentLoaded", async () => {
 	await new Promise((r) => setImmediate(r));
 	assert.deepEqual(plain(context.calls), ["init:true", "data"]);
 	assert.ok(posted.some((m) => m.k === "booted"));
-});
-
-test("deferred defaults are retried during boot", async () => {
-	const { context, listeners } = run(BASE, "globalThis.Later = { value: () => 'late' };");
-	assert.equal(context.fromModule, undefined);
-	listeners.DOMContentLoaded();
-	await new Promise((r) => setImmediate(r));
-	assert.equal(context.fromModule, "late");
 });
 
 test("hooks declared with const are still found", async () => {
@@ -103,4 +120,19 @@ test("Escape asks the host to close only when enabled", () => {
 	on.listeners["window:keydown"]({ key: "a" });
 	on.listeners["window:keydown"]({ key: "Escape" });
 	assert.deepEqual(plain(on.posted.filter((m) => m.k === "close")), [{ k: "close" }]);
+});
+
+test("function and promise defaults are resolved; search-combobox keeps the key", async () => {
+	const payload = {
+		...EVALUATE,
+		props: [
+			{ name: "city", kind: "search-combobox", defaultExpr: "Geo.getDefault" },
+			{ name: "later", kind: "textfield", defaultExpr: "Promise.resolve('x')" },
+		],
+	};
+	const { posted, listeners } = run(payload, "globalThis.Geo = { getDefault: () => Promise.resolve(['5368361', 'Los Angeles']) };");
+	listeners.DOMContentLoaded();
+	await new Promise((r) => setTimeout(r, 10));
+	const evaluated = posted.find((m) => m.k === "evaluated");
+	assert.deepEqual(evaluated.values, { city: "5368361", later: "x" });
 });

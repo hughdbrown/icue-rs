@@ -18,6 +18,10 @@ thiserror.workspace = true
 uuid.workspace = true
 wry.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# Already in the tree via tao; used for EDID vendor/model numbers.
+core-graphics = "0.25"
+
 [dev-dependencies]
 tempfile.workspace = true
 

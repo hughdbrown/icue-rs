@@ -8,10 +8,19 @@
 //! | Portrait    | 720×2560 | 1×6   | 696×416 | 8      | 12     |
 //!
 //! Every published slot size (S/M/L/XL in both orientations) is reproduced exactly by
-//! [`slot_rect`].
+//! [`slot_rect`]. [`select_display`] chooses the display the panel is drawn on.
+
+mod display;
 
 use std::fmt;
 use std::str::FromStr;
+
+use serde::{Deserialize, Serialize};
+
+pub use display::{
+    DisplayChoice, DisplayInfo, EDGE_EDID_MODEL, EDGE_EDID_VENDOR, Fit, Selection, fit_panel,
+    select_display,
+};
 
 /// Space between adjacent cells, in panel pixels.
 pub const GUTTER: u32 = 8;
@@ -19,9 +28,11 @@ pub const GUTTER: u32 = 8;
 pub const MARGIN: u32 = 12;
 
 /// Panel orientation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Orientation {
     /// 2560×720, three columns by two rows.
+    #[default]
     Landscape,
     /// 720×2560, one column by six rows.
     Portrait,
@@ -78,7 +89,7 @@ impl fmt::Display for Orientation {
 }
 
 /// iCUE widget slot size.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Slot {
     /// Small: one cell.
     S,
@@ -131,7 +142,7 @@ impl fmt::Display for Slot {
 }
 
 /// A grid cell coordinate, zero-based from the top-left.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct Cell {
     /// Column index.
     pub col: u32,
@@ -171,6 +182,39 @@ pub enum LayoutError {
     /// Unrecognised orientation name.
     #[error("unknown orientation {0:?} (expected landscape or portrait)")]
     UnknownOrientation(String),
+    /// A display pick matched no connected display.
+    #[error("no display matches {query:?}; connected: {}", available.join(", "))]
+    NoSuchDisplay {
+        /// The index or name that was requested.
+        query: String,
+        /// Names of the connected displays.
+        available: Vec<String>,
+    },
+}
+
+impl Slot {
+    /// Every slot, smallest first.
+    pub const ALL: [Self; 4] = [Self::S, Self::M, Self::L, Self::XL];
+
+    /// The cells this slot covers when placed at `origin`, or `None` if it does not fit.
+    #[must_use]
+    pub fn cells(self, orientation: Orientation, origin: Cell) -> Option<Vec<Cell>> {
+        slot_rect(orientation, self, origin).ok()?;
+        let (span_c, span_r) = self.span(orientation);
+        Some(
+            (origin.row..origin.row + span_r)
+                .flat_map(|row| (origin.col..origin.col + span_c).map(move |col| Cell { col, row }))
+                .collect(),
+        )
+    }
+}
+
+impl Orientation {
+    /// Every cell of the grid in reading order.
+    pub fn all_cells(self) -> impl Iterator<Item = Cell> {
+        let (cols, rows) = self.grid();
+        (0..rows).flat_map(move |row| (0..cols).map(move |col| Cell { col, row }))
+    }
 }
 
 /// Pixel rectangle of `slot` placed with its top-left corner at `origin`.
@@ -213,32 +257,6 @@ pub fn slot_rect(
         y: MARGIN + origin.row * (cell_h + GUTTER),
         width: span_c * cell_w + (span_c - 1) * GUTTER,
         height: span_r * cell_h + (span_r - 1) * GUTTER,
-    })
-}
-
-/// Physical size of a connected display, as reported by the windowing system.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MonitorInfo {
-    /// Width in physical pixels.
-    pub width: u32,
-    /// Height in physical pixels.
-    pub height: u32,
-}
-
-/// Index and orientation of the first display whose native size matches the Edge panel.
-///
-/// ```
-/// use edge_layout::{find_edge, MonitorInfo, Orientation};
-/// let monitors = [MonitorInfo { width: 3456, height: 2234 }, MonitorInfo { width: 720, height: 2560 }];
-/// assert_eq!(find_edge(&monitors), Some((1, Orientation::Portrait)));
-/// ```
-#[must_use]
-pub fn find_edge(monitors: &[MonitorInfo]) -> Option<(usize, Orientation)> {
-    monitors.iter().enumerate().find_map(|(i, m)| {
-        [Orientation::Landscape, Orientation::Portrait]
-            .into_iter()
-            .find(|o| o.panel_size() == (m.width, m.height))
-            .map(|o| (i, o))
     })
 }
 
@@ -321,24 +339,6 @@ mod tests {
         assert_eq!(
             "vertical".parse::<Orientation>().unwrap(),
             Orientation::Portrait
-        );
-    }
-
-    #[test]
-    fn find_edge_ignores_other_displays() {
-        assert_eq!(
-            find_edge(&[MonitorInfo {
-                width: 1920,
-                height: 1080
-            }]),
-            None
-        );
-        assert_eq!(
-            find_edge(&[MonitorInfo {
-                width: 2560,
-                height: 720
-            }]),
-            Some((0, Orientation::Landscape))
         );
     }
 }

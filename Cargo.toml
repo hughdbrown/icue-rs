@@ -2,7 +2,9 @@
 resolver = "3"
 members = [
     "apps/edgectl",
+    "apps/edgehost",
     "crates/edge-layout",
+    "crates/edge-store",
     "crates/icuew-manifest",
     "crates/widget-runtime",
 ]
@@ -16,8 +18,9 @@ version = "0.1.0"
 
 [workspace.dependencies]
 anyhow = "1"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 edge-layout = { path = "crates/edge-layout" }
+edge-store = { path = "crates/edge-store" }
 icuew-manifest = { path = "crates/icuew-manifest" }
 scraper = "0.27"
 serde = { version = "1", features = ["derive"] }
