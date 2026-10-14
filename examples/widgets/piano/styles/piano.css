@@ -1,0 +1,135 @@
+:root {
+	--accent: #ffb300;
+	--bg: #14161c;
+	--fg: #f2f4f8;
+	--line: color-mix(in srgb, var(--fg) 16%, transparent);
+}
+* {
+	box-sizing: border-box;
+}
+html,
+body {
+	margin: 0;
+	height: 100%;
+	overflow: hidden;
+	background: var(--bg);
+	color: var(--fg);
+	font: 18px/1.2 -apple-system, "Segoe UI", system-ui, sans-serif;
+	-webkit-user-select: none;
+	user-select: none;
+}
+#root {
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 12px 14px 10px;
+}
+#keyboard {
+	position: relative;
+	flex: 1 1 auto;
+	min-height: 0;
+	touch-action: none;
+	-webkit-user-select: none;
+	user-select: none;
+	-webkit-touch-callout: none;
+	border-radius: 10px;
+	overflow: hidden;
+	background: #0a0b0f;
+}
+.key {
+	position: absolute;
+	top: 0;
+	display: flex;
+	align-items: flex-end;
+	justify-content: center;
+	touch-action: none;
+	user-select: none;
+	-webkit-user-select: none;
+	font-size: 15px;
+	font-weight: 600;
+	padding-bottom: 10px;
+	overflow: hidden;
+}
+.key.white {
+	height: 100%;
+	background: linear-gradient(#f7f7f4, #e4e4de 85%, #cfcfc8);
+	color: #555;
+	border-right: 2px solid #0a0b0f;
+	border-radius: 0 0 8px 8px;
+	z-index: 1;
+}
+.key.black {
+	height: 62%;
+	background: linear-gradient(#2c2f38, #0d0e12);
+	color: #aab;
+	font-size: 12px;
+	border-radius: 0 0 6px 6px;
+	box-shadow: 0 3px 6px rgba(0, 0, 0, 0.6), inset 0 -4px 0 rgba(255, 255, 255, 0.07);
+	z-index: 2;
+}
+.key.white.pressed {
+	background: linear-gradient(color-mix(in srgb, var(--accent) 55%, #fff), var(--accent));
+	color: #111;
+}
+.key.black.pressed {
+	background: linear-gradient(var(--accent), color-mix(in srgb, var(--accent) 60%, #000));
+	color: #111;
+}
+#controls {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 48px;
+}
+#controls .spacer {
+	flex: 1 1 auto;
+}
+#sounds {
+	display: flex;
+	gap: 6px;
+}
+button {
+	font: inherit;
+	color: var(--fg);
+	min-height: 48px;
+	min-width: 48px;
+	padding: 0 14px;
+	background: color-mix(in srgb, var(--fg) 9%, transparent);
+	border: 1px solid var(--line);
+	border-radius: 12px;
+	cursor: pointer;
+	touch-action: manipulation;
+}
+button:active {
+	background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+button[aria-pressed="true"] {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: #111;
+	font-weight: 600;
+}
+#oct-label {
+	min-width: 96px;
+	text-align: center;
+	font-variant-numeric: tabular-nums;
+	color: color-mix(in srgb, var(--fg) 75%, transparent);
+}
+@media (max-width: 760px) {
+	button {
+		padding: 0 8px;
+	}
+	#oct-label {
+		min-width: 70px;
+	}
+}
+@media (min-width: 1500px) {
+	.key {
+		font-size: 20px;
+	}
+	.key.black {
+		font-size: 15px;
+	}
+}

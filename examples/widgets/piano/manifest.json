@@ -1,0 +1,13 @@
+{
+	"author": "EdgeHost",
+	"id": "dev.edgehost.piano",
+	"name": "Piano",
+	"description": "A touch piano keyboard with five synthesized voices. Plays several fingers at once and glides between keys.",
+	"version": "0.1.0",
+	"preview_icon": "resources/icon.svg",
+	"min_app_version": "5.47",
+	"min_framework_version": "1.0.0",
+	"os": [{ "platform": "windows" }, { "platform": "mac" }],
+	"supported_devices": [{ "type": "dashboard_lcd" }],
+	"interactive": true
+}

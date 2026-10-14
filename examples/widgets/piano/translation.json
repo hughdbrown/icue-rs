@@ -1,0 +1,26 @@
+{
+	"en": {
+		"translation": {
+			"Piano": "Piano",
+			"Octaves": "Octaves",
+			"Starting octave": "Starting octave",
+			"Sound": "Sound",
+			"Piano sound": "Piano",
+			"Electric piano": "Electric",
+			"Organ": "Organ",
+			"Synth": "Synth",
+			"Marimba": "Marimba",
+			"Volume": "Volume",
+			"Key labels": "Key labels",
+			"None": "None",
+			"C keys only": "C keys only",
+			"All keys": "All keys",
+			"Sustain": "Sustain",
+			"Accent Color": "Accent Color",
+			"Background Color": "Background Color",
+			"Keyboard": "Keyboard",
+			"Appearance": "Appearance",
+			"Octave, sound and labels edited on the widget take precedence until the matching setting changes.": "Octave, sound and labels edited on the widget take precedence until the matching setting changes."
+		}
+	}
+}

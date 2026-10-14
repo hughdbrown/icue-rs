@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>tr('Piano')</title>
+		<link rel="icon" type="image/svg+xml" href="resources/icon.svg" />
+		<meta name="x-icue-property" content="octaves" data-label="tr('Octaves')" data-type="tab-buttons" data-default="'3'" data-values="[{'key':'2','value':'2'},{'key':'3','value':'3'}]" />
+		<meta name="x-icue-property" content="startOctave" data-label="tr('Starting octave')" data-type="combobox" data-default="'3'" data-values="[{'key':'2','value':'C2'},{'key':'3','value':'C3'},{'key':'4','value':'C4'},{'key':'5','value':'C5'}]" />
+		<meta name="x-icue-property" content="sound" data-label="tr('Sound')" data-type="tab-buttons" data-default="'piano'" data-values="[{'key':'piano','value':tr('Piano sound')},{'key':'electric','value':tr('Electric piano')},{'key':'organ','value':tr('Organ')},{'key':'synth','value':tr('Synth')},{'key':'marimba','value':tr('Marimba')}]" />
+		<meta name="x-icue-property" content="volume" data-label="tr('Volume')" data-type="slider" data-default="70" data-min="0" data-max="100" data-step="1" data-unit-label="'%'" />
+		<meta name="x-icue-property" content="labels" data-label="tr('Key labels')" data-type="combobox" data-default="'c'" data-values="[{'key':'none','value':tr('None')},{'key':'c','value':tr('C keys only')},{'key':'all','value':tr('All keys')}]" />
+		<meta name="x-icue-property" content="sustain" data-label="tr('Sustain')" data-type="switch" data-default="false" />
+		<meta name="x-icue-property" content="accentColor" data-label="tr('Accent Color')" data-type="color" data-default="'#FFB300'" />
+		<meta name="x-icue-property" content="backgroundColor" data-label="tr('Background Color')" data-type="color" data-default="'#14161C'" />
+		<script type="application/json" id="x-icue-groups">
+			[
+				{ "title": "tr('Keyboard')", "properties": ["octaves", "startOctave", "sound", "volume", "labels", "sustain"], "info": "tr('Octave, sound and labels edited on the widget take precedence until the matching setting changes.')" },
+				{ "title": "tr('Appearance')", "properties": ["accentColor", "backgroundColor"] }
+			]
+		</script>
+		<link rel="stylesheet" href="styles/piano.css" />
+	</head>
+	<body>
+		<main id="root">
+			<div id="keyboard" role="group" aria-label="Piano keyboard"></div>
+			<nav id="controls" aria-label="Piano controls">
+				<button id="oct-down" type="button" aria-label="Octave down">&minus;</button>
+				<span id="oct-label">C3&ndash;C6</span>
+				<button id="oct-up" type="button" aria-label="Octave up">+</button>
+				<span class="spacer"></span>
+				<div id="sounds" role="group" aria-label="Sound"></div>
+			</nav>
+		</main>
+		<script src="scripts/piano.js"></script>
+	</body>
+</html>
