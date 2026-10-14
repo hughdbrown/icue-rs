@@ -6,7 +6,9 @@
 //   /mission.json.  Every request goes through httpGet(), which refuses any other path.
 //   NEVER used: /map_obj.json, /map.img, /map_info.json, positions/distance/bearing of any other
 //   unit (friend or foe), screen capture, audio analysis, memory reading, or anything that
-//   modifies the game. The widget is read-only and only ever sends GET requests to localhost:8111.
+//   modifies the game. The widget is read-only and only ever sends GET requests to port 8111 of
+//   the PC running the game: localhost by default, or the host set in "War Thunder PC" (your own
+//   game PC on the local network; the manifest allows any host, but only on port 8111).
 //
 // Field names come from https://github.com/lucasvmx/WarThunder-localhost-documentation
 // (State.md, Indicators.md, Hudmsg.md, GameChat.md, Mission.md). Tank-only indicator fields are
@@ -20,16 +22,33 @@ icueEvents = {
 // ---------------------------------------------------------------------------------------------
 // Network (allow-list enforced here)
 // ---------------------------------------------------------------------------------------------
-const WT_BASE = "http://localhost:8111";
+const WT_PORT = 8111;
 const ALLOWED_PATHS = ["/state", "/indicators", "/hudmsg", "/gamechat", "/mission.json"];
 
 function isAllowedPath(path) {
 	return ALLOWED_PATHS.includes(String(path));
 }
 
+// The "War Thunder PC" setting as a URL host: accepts "gamepc.local", "192.168.1.20",
+// "http://192.168.1.20:8111/", "::1" or "[fe80::1]"; anything else (or blank) means localhost.
+// Any port typed is dropped: the telemetry server is always on 8111.
+function normalizeHost(raw) {
+	let h = String(raw == null ? "" : raw).trim().toLowerCase();
+	h = h.replace(/^[a-z][a-z0-9+.-]*:\/\//, "").replace(/[/?#].*$/, "");
+	if (/^\[[0-9a-f:.]+\](:\d+)?$/.test(h)) return h.replace(/(\])(:\d+)$/, "$1");
+	if (/^[0-9a-f:.]+$/.test(h) && (h.match(/:/g) || []).length > 1) return "[" + h + "]";
+	h = h.replace(/:\d+$/, "");
+	return /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(h) ? h : "localhost";
+}
+
+function wtAddress(host) {
+	return host + ":" + WT_PORT;
+}
+
 async function httpGet(path, query) {
 	if (!isAllowedPath(path)) throw new Error("endpoint not allowed: " + path);
-	const r = await fetch(WT_BASE + path + (query || ""));
+	const host = rt.cfg ? rt.cfg.host : "localhost";
+	const r = await fetch("http://" + wtAddress(host) + path + (query || ""));
 	if (r.ok === false) throw new Error("HTTP " + r.status);
 	return r.json();
 }
@@ -408,6 +427,7 @@ function computeWarnings(air, est, cfg) {
 function readSettings() {
 	const num = (v, d, lo, hi) => (isNum(v) ? Math.max(lo, Math.min(hi, v)) : d);
 	return {
+		host: normalizeHost(typeof wtHost === "string" ? wtHost : ""),
 		playerName: typeof playerName === "string" ? playerName : "",
 		units: typeof units === "string" && units === "imperial" ? "imperial" : "metric",
 		pollMs: num(typeof pollMs === "undefined" ? undefined : pollMs, 200, 100, 1000),
@@ -589,8 +609,14 @@ function renderAll(state, ind) {
 	if (rt.online) mode = rt.army === "air" ? "air" : rt.army === "tank" ? "tank" : "hangar";
 	root.className = "state-" + mode;
 	if (mode === "wait") {
-		setText("banner-title", "Waiting for War Thunder on localhost:8111");
-		setText("banner-hint", "Make sure the game is running and its telemetry server is enabled (localhost:8111 should open in a browser).");
+		const addr = wtAddress(rt.cfg.host);
+		setText("banner-title", "Waiting for War Thunder on " + addr);
+		setText(
+			"banner-hint",
+			rt.cfg.host === "localhost"
+				? "Make sure the game is running and its telemetry server is enabled (localhost:8111 should open in a browser). Playing on another PC? Set War Thunder PC in the widget settings."
+				: "Make sure the game is running on " + rt.cfg.host + ", its firewall allows incoming TCP 8111, and http://" + addr + " opens in a browser on this Mac.",
+		);
 	} else if (mode === "hangar") {
 		setText("banner-title", "In hangar / not in vehicle");
 		setText("banner-hint", "Telemetry connected. Flight and vehicle data appear once you spawn.");

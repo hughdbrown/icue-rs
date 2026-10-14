@@ -4,6 +4,7 @@
 		<meta charset="utf-8" />
 		<title>tr('War Thunder HUD')</title>
 		<link rel="icon" type="image/svg+xml" href="resources/icon.svg" />
+		<meta name="x-icue-property" content="wtHost" data-label="tr('War Thunder PC (host name or IP address)')" data-type="textfield" data-default="'localhost'" />
 		<meta name="x-icue-property" content="playerName" data-label="tr('Your player name (highlights your kill-feed lines)')" data-type="textfield" data-default="''" />
 		<meta name="x-icue-property" content="units" data-label="tr('Units')" data-type="tab-buttons" data-default="'metric'" data-values="[{'key':'metric','value':'Metric'},{'key':'imperial','value':'Imperial'}]" />
 		<meta name="x-icue-property" content="pollMs" data-label="tr('Poll interval (flight data)')" data-type="slider" data-default="200" data-min="100" data-max="1000" data-step="50" data-unit-label="'ms'" />
@@ -18,6 +19,7 @@
 		<meta name="x-icue-property" content="warningColor" data-label="tr('Warning Color')" data-type="color" data-default="'#FF4D4D'" />
 		<script type="application/json" id="x-icue-groups">
 			[
+				{ "title": "tr('Connection')", "properties": ["wtHost"], "info": "tr('localhost if War Thunder runs on this Mac; otherwise the game PC on your network, such as 192.168.1.20 or gamepc.local. The telemetry server is always on port 8111.')" },
 				{ "title": "tr('Player')", "properties": ["playerName", "units", "pollMs", "showChat"], "info": "tr('Used only to highlight lines in the kill feed and to count your own kills and deaths.')" },
 				{ "title": "tr('Thresholds')", "properties": ["fuelWarnMinutes", "waterTempLimit", "oilTempLimit", "criticalAoA"] },
 				{ "title": "tr('Appearance')", "properties": ["textColor", "accentColor", "backgroundColor", "warningColor"] }

@@ -216,6 +216,37 @@ test("warnings", () => {
 	assert.ok(w.some((x) => x.startsWith("OIL ")));
 });
 
+test("normalizeHost accepts host names, IPs and pasted URLs, else localhost", () => {
+	const { normalizeHost } = load().ctx;
+	const cases = [
+		["", "localhost"],
+		[undefined, "localhost"],
+		["  GamePC.local ", "gamepc.local"],
+		["192.168.1.20", "192.168.1.20"],
+		["192.168.1.20:8111", "192.168.1.20"],
+		["http://192.168.1.20:8111/state", "192.168.1.20"],
+		["::1", "[::1]"],
+		["[fe80::1]:8111", "[fe80::1]"],
+		["bad host!", "localhost"],
+		["-x.local", "localhost"],
+	];
+	for (const [raw, want] of cases) assert.equal(normalizeHost(raw), want, String(raw));
+});
+
+test("a remote War Thunder PC is polled and named in the waiting banner", async () => {
+	const env = load({ wtHost: "http://192.168.1.20:8111/" });
+	try {
+		env.ctx.icueEvents.onICUEInitialized();
+		await env.ctx.pollFast();
+		assert.equal(env.byId.get("banner-title").textContent, "Waiting for War Thunder on 192.168.1.20:8111");
+		assert.match(env.byId.get("banner-hint").textContent, /firewall allows incoming TCP 8111/);
+		assert.ok(env.fetchCalls.length > 0);
+		assert.ok(env.fetchCalls.every((u) => u.startsWith("http://192.168.1.20:8111/")));
+	} finally {
+		env.stop();
+	}
+});
+
 test("init renders the waiting state when fetch rejects", async () => {
 	const env = load();
 	try {

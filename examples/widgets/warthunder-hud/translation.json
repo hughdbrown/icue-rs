@@ -2,6 +2,9 @@
 	"en": {
 		"translation": {
 			"War Thunder HUD": "War Thunder HUD",
+			"War Thunder PC (host name or IP address)": "War Thunder PC (host name or IP address)",
+			"Connection": "Connection",
+			"localhost if War Thunder runs on this Mac; otherwise the game PC on your network, such as 192.168.1.20 or gamepc.local. The telemetry server is always on port 8111.": "localhost if War Thunder runs on this Mac; otherwise the game PC on your network, such as 192.168.1.20 or gamepc.local. The telemetry server is always on port 8111.",
 			"Your player name (highlights your kill-feed lines)": "Your player name (highlights your kill-feed lines)",
 			"Units": "Units",
 			"Poll interval (flight data)": "Poll interval (flight data)",
