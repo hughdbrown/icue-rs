@@ -4,6 +4,7 @@ members = [
     "apps/edgectl",
     "apps/edgehost",
     "crates/edge-layout",
+    "crates/edge-plugins",
     "crates/edge-store",
     "crates/icuew-manifest",
     "crates/widget-runtime",
@@ -20,6 +21,7 @@ version = "0.1.0"
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 edge-layout = { path = "crates/edge-layout" }
+edge-plugins = { path = "crates/edge-plugins" }
 edge-store = { path = "crates/edge-store" }
 icuew-manifest = { path = "crates/icuew-manifest" }
 scraper = "0.27"
