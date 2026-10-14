@@ -264,6 +264,74 @@ impl Layout {
         Ok(id)
     }
 
+    /// Move and/or resize an instance: `page` may be one past the last page (adds a page).
+    /// Empty trailing pages are dropped afterwards.
+    ///
+    /// # Errors
+    ///
+    /// [`LayoutError::UnknownInstance`], [`LayoutError::NoSuchPage`], [`LayoutError::Grid`] or
+    /// [`LayoutError::Overlap`] (with any instance other than the one being moved).
+    pub fn move_to(
+        &mut self,
+        id: InstanceId,
+        page: usize,
+        slot: Slot,
+        origin: Cell,
+    ) -> Result<(), LayoutError> {
+        if page > self.pages.len() {
+            return Err(LayoutError::NoSuchPage {
+                page,
+                pages: self.pages.len(),
+            });
+        }
+        let orientation = self.orientation;
+        let cells =
+            slot.cells(orientation, origin)
+                .ok_or(edge_layout::LayoutError::OutOfBounds {
+                    slot,
+                    origin,
+                    orientation,
+                })?;
+        let occupied = self
+            .pages
+            .get(page)
+            .map(|p| occupied_cells(p, orientation))
+            .unwrap_or_default();
+        if let Some(other) = cells
+            .iter()
+            .find_map(|c| occupied.get(c).filter(|o| **o != id))
+        {
+            return Err(LayoutError::Overlap {
+                slot,
+                origin,
+                other: other.short(),
+            });
+        }
+        let (from_page, index) = self
+            .pages
+            .iter()
+            .enumerate()
+            .find_map(|(p, pg)| pg.instances.iter().position(|i| i.id == id).map(|i| (p, i)))
+            .ok_or_else(|| LayoutError::UnknownInstance(id.to_string()))?;
+        let mut instance = self
+            .pages
+            .get_mut(from_page)
+            .map(|pg| pg.instances.remove(index))
+            .ok_or_else(|| LayoutError::UnknownInstance(id.to_string()))?;
+        instance.slot = slot;
+        instance.origin = origin;
+        if page == self.pages.len() {
+            self.pages.push(Page::default());
+        }
+        if let Some(pg) = self.pages.get_mut(page) {
+            pg.instances.push(instance);
+        }
+        while self.pages.last().is_some_and(|p| p.instances.is_empty()) {
+            self.pages.pop();
+        }
+        Ok(())
+    }
+
     /// Remove an instance; empty trailing pages are dropped.
     ///
     /// # Errors
@@ -438,6 +506,37 @@ mod tests {
         assert!(l.resolve("").is_err());
         l.remove(x).unwrap();
         assert_eq!(l.pages, Vec::new());
+    }
+
+    #[test]
+    fn move_resizes_and_relocates_ignoring_itself() {
+        let mut l = Layout::default();
+        let a = l
+            .add(0, id(), "1".into(), Slot::S, Some(Cell { col: 0, row: 0 }))
+            .unwrap();
+        let b = l
+            .add(0, id(), "1".into(), Slot::S, Some(Cell { col: 2, row: 0 }))
+            .unwrap();
+        // Growing in place overlaps only itself.
+        l.move_to(a, 0, Slot::M, Cell { col: 0, row: 0 }).unwrap();
+        assert!(matches!(
+            l.move_to(a, 0, Slot::L, Cell { col: 1, row: 0 }),
+            Err(LayoutError::Overlap { .. })
+        ));
+        // Moving the last instance off page 0 to a new page keeps page 0 (it still has `a`).
+        l.move_to(b, 1, Slot::XL, Cell::default()).unwrap();
+        assert_eq!(l.pages.len(), 2);
+        // Moving it back drops the now-empty trailing page.
+        l.move_to(b, 0, Slot::S, Cell { col: 2, row: 1 }).unwrap();
+        assert_eq!(l.pages.len(), 1);
+        assert!(matches!(
+            l.move_to(b, 3, Slot::S, Cell::default()),
+            Err(LayoutError::NoSuchPage { .. })
+        ));
+        assert!(matches!(
+            l.move_to(b, 0, Slot::L, Cell { col: 2, row: 0 }),
+            Err(LayoutError::Grid(_))
+        ));
     }
 
     #[test]

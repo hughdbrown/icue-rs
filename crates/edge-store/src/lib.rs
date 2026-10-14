@@ -1,7 +1,7 @@
 //! EdgeHost's on-disk data.
 //!
 //! ```text
-//! <root>/                      ~/Library/Application Support/EdgeHost (or $EDGEHOST_HOME)
+//! <root>/                      ~/Library/Application Support/EdgeHost (macOS), ~/.local/share/edgehost (Linux), or $EDGEHOST_HOME
 //! ├── widgets/<id>/<version>/  installed, validated widget packages
 //! ├── common/                  optional shared folder served at /common/ (iCUE's widgets/common)
 //! ├── layout.json              pages, widget instances and their property values
@@ -72,7 +72,8 @@ pub struct Store {
 }
 
 impl Store {
-    /// `$EDGEHOST_HOME`, else `~/Library/Application Support/EdgeHost`.
+    /// `$EDGEHOST_HOME`, else `~/Library/Application Support/EdgeHost` (macOS) or
+    /// `$XDG_DATA_HOME/edgehost` / `~/.local/share/edgehost` (Linux).
     ///
     /// # Errors
     ///
@@ -82,7 +83,7 @@ impl Store {
             return Ok(PathBuf::from(home));
         }
         let home = std::env::var_os("HOME").ok_or(StoreError::NoHome)?;
-        Ok(PathBuf::from(home).join("Library/Application Support/EdgeHost"))
+        Ok(platform_data_dir(Path::new(&home)))
     }
 
     /// Open (creating if needed) the store at `root`.
@@ -255,6 +256,21 @@ impl Store {
         tmp.persist(&path).map_err(|e| io_err(e.error))?;
         Ok(())
     }
+}
+
+/// macOS: `~/Library/Application Support/EdgeHost`.
+#[cfg(target_os = "macos")]
+fn platform_data_dir(home: &Path) -> PathBuf {
+    home.join("Library/Application Support/EdgeHost")
+}
+
+/// Linux: `$XDG_DATA_HOME/edgehost`, else `~/.local/share/edgehost`.
+#[cfg(not(target_os = "macos"))]
+fn platform_data_dir(home: &Path) -> PathBuf {
+    std::env::var_os("XDG_DATA_HOME")
+        .filter(|d| !d.is_empty())
+        .map_or_else(|| home.join(".local/share"), PathBuf::from)
+        .join("edgehost")
 }
 
 /// Compare dotted version strings numerically where possible (`1.10.0` > `1.9.2`).
