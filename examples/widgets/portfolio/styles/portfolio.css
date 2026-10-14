@@ -19,6 +19,7 @@ body {
 	background: var(--bg);
 	color: var(--fg);
 	font: 18px/1.3 -apple-system, "Segoe UI", system-ui, sans-serif;
+	/* Finger drags (chart scrubbing) must not select labels; inputs re-enable selection. */
 	-webkit-user-select: none;
 	user-select: none;
 }
@@ -30,6 +31,8 @@ button {
 	border-radius: 12px;
 	min-height: 44px;
 	padding: 0 18px;
+	cursor: pointer;
+	touch-action: manipulation;
 }
 button:active {
 	background: color-mix(in srgb, var(--accent) 30%, transparent);
