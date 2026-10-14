@@ -11,6 +11,7 @@
 //! [`slot_rect`]. [`select_display`] chooses the display the panel is drawn on.
 
 mod display;
+mod edid;
 
 use std::fmt;
 use std::str::FromStr;
@@ -21,6 +22,7 @@ pub use display::{
     DisplayChoice, DisplayInfo, EDGE_EDID_MODEL, EDGE_EDID_VENDOR, Fit, Selection, fit_panel,
     select_display,
 };
+pub use edid::{Edid, parse_edid};
 
 /// Space between adjacent cells, in panel pixels.
 pub const GUTTER: u32 = 8;
