@@ -10,6 +10,7 @@
 
 pub mod addin;
 pub mod filesystem;
+pub mod net;
 pub mod paths;
 pub mod rhai_provider;
 

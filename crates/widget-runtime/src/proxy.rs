@@ -99,7 +99,7 @@ pub fn is_allowed(permissions: &[UrlPermission], url: &str) -> bool {
         return false;
     };
     let port = uri.port_u16().unwrap_or(default_port);
-    let loopback = host == "localhost" || host.starts_with("127.") || host == "::1";
+    let loopback = edge_plugins::net::is_loopback_host(&host);
     permissions.iter().any(|p| {
         let host_ok = if p.domain == "any" {
             !loopback
@@ -156,7 +156,14 @@ fn fetch_permitted(
             url: url.clone(),
             message,
         };
-        let resp = agent()
+        // A host written as loopback got past is_allowed only through an explicit permission; any
+        // other name that resolves to this machine is refused when connecting.
+        let local = url
+            .parse::<Uri>()
+            .ok()
+            .and_then(|u| u.host().map(edge_plugins::net::is_loopback_host))
+            .unwrap_or(false);
+        let resp = agent(local)
             .get(&url)
             .call()
             .map_err(|e| upstream(e.to_string()))?;
@@ -252,23 +259,30 @@ fn error_response(e: &ProxyError) -> Response<Cow<'static, [u8]>> {
         .unwrap_or_else(|_| Response::new(Cow::Borrowed(b"proxy error".as_slice())))
 }
 
-fn agent() -> &'static ureq::Agent {
-    static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
-    AGENT.get_or_init(|| {
+/// The agent for public hosts, or for an explicitly permitted loopback host (`local`).
+fn agent(local: bool) -> &'static ureq::Agent {
+    static PUBLIC: OnceLock<ureq::Agent> = OnceLock::new();
+    static LOCAL: OnceLock<ureq::Agent> = OnceLock::new();
+    let make = || {
         let tls = ureq::tls::TlsConfig::builder()
             .provider(ureq::tls::TlsProvider::NativeTls)
             .root_certs(ureq::tls::RootCerts::PlatformVerifier)
             .build();
-        ureq::Agent::config_builder()
+        let config = ureq::Agent::config_builder()
             .tls_config(tls)
             .timeout_global(Some(TIMEOUT))
             .http_status_as_error(false)
             // Redirects are followed in `fetch_permitted`, which checks each hop.
             .max_redirects(0)
             .user_agent(USER_AGENT)
-            .build()
-            .new_agent()
-    })
+            .build();
+        edge_plugins::net::agent(config, local)
+    };
+    if local {
+        LOCAL.get_or_init(make)
+    } else {
+        PUBLIC.get_or_init(make)
+    }
 }
 
 #[cfg(test)]
@@ -369,6 +383,46 @@ mod tests {
 
     fn local(port: u16) -> UrlPermission {
         perm("127.0.0.1", Some(port))
+    }
+
+    #[test]
+    fn any_cannot_reach_this_machine_through_other_spellings() {
+        let port = stub_server(|_| body("local secret"));
+        let any = [perm("any", Some(port))];
+        for host in ["0.0.0.0", "2130706433"] {
+            let err = fetch(&any, &format!("http://{host}:{port}/")).unwrap_err();
+            assert!(
+                err.to_string().contains("resolves to this machine"),
+                "{host}: {err}"
+            );
+        }
+        // A redirect from an allowed public-looking host to this machine is caught the same way.
+        let bounce = stub_server(move |_| redirect(&format!("http://0.0.0.0:{port}/")));
+        let perms = [local(bounce), perm("any", Some(port))];
+        let err = fetch(&perms, &format!("http://127.0.0.1:{bounce}/")).unwrap_err();
+        assert!(
+            err.to_string().contains("resolves to this machine"),
+            "{err}"
+        );
+        // Declared explicitly, the local service is reachable.
+        let ok = fetch(&[local(port)], &format!("http://127.0.0.1:{port}/")).unwrap();
+        assert_eq!(ok.body().as_ref(), b"local secret");
+    }
+
+    /// `localtest.me` resolves to 127.0.0.1 in public DNS (`cargo test -- --ignored`).
+    #[test]
+    #[ignore = "needs DNS"]
+    fn any_cannot_reach_this_machine_through_dns() {
+        let port = stub_server(|_| body("local secret"));
+        let err = fetch(
+            &[perm("any", Some(port))],
+            &format!("http://localtest.me:{port}/"),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("resolves to this machine"),
+            "{err}"
+        );
     }
 
     #[test]

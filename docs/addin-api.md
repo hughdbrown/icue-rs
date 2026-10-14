@@ -225,6 +225,10 @@ signal, as the sample does with `priceError`.
 - An add-in can reach only what §5 lists. The network is limited to `GET` on granted hosts. A grant
   `api.example.com` covers that host and its subdomains (`eu.api.example.com`) on the URL scheme's
   default port. `host:port` covers exactly that port. Loopback needs an explicit port.
+- **This machine is reachable only by name.** Only a URL whose host is written `localhost`, `127.*` or
+  `::1`, granted with its port, may connect to this Mac. Any other host that resolves to a loopback
+  or unspecified address (`0.0.0.0`, `2130706433`, a DNS name pointing at `127.0.0.1`) is refused when
+  connecting, with `… resolves to this machine; …`. Hosts on the local network are not affected.
 - **Redirects are not followed.** A 3xx response fails with
   `HTTP 302 from <url> redirects to <location>; redirects are not followed, …`, so a granted host
   cannot send the script to an undeclared one. Request the final URL instead.

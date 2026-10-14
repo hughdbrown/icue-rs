@@ -140,11 +140,7 @@ impl HttpGrant {
     }
 }
 
-/// Whether `host` names this machine.
-#[must_use]
-pub fn is_loopback(host: &str) -> bool {
-    host == "localhost" || host.starts_with("127.") || host == "::1" || host == "[::1]"
-}
+use crate::net::is_loopback_host as is_loopback;
 
 /// A loaded, compiled add-in.
 #[derive(Debug)]

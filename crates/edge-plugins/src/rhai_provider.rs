@@ -416,7 +416,12 @@ fn http_get(grants: &[HttpGrant], url: &str) -> Result<String, String> {
             "{host}:{port} is not in the add-in's permissions.http"
         ));
     }
-    let mut response = agent().get(url).call().map_err(|e| e.to_string())?;
+    // Only a host written as loopback, which a grant must name with its port, may reach this
+    // machine; any other name that resolves here is refused at connection time.
+    let mut response = agent(crate::net::is_loopback_host(&host))
+        .get(url)
+        .call()
+        .map_err(|e| e.to_string())?;
     let status = response.status().as_u16();
     if (300..400).contains(&status) {
         // Following it could reach a host the add-in did not declare.
@@ -441,22 +446,29 @@ fn http_get(grants: &[HttpGrant], url: &str) -> Result<String, String> {
     Ok(body)
 }
 
-fn agent() -> &'static ureq::Agent {
-    static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
-    AGENT.get_or_init(|| {
+/// The agent for public hosts, or for an explicitly granted loopback host (`local`).
+fn agent(local: bool) -> &'static ureq::Agent {
+    static PUBLIC: OnceLock<ureq::Agent> = OnceLock::new();
+    static LOCAL: OnceLock<ureq::Agent> = OnceLock::new();
+    let make = || {
         let tls = ureq::tls::TlsConfig::builder()
             .provider(ureq::tls::TlsProvider::NativeTls)
             .root_certs(ureq::tls::RootCerts::PlatformVerifier)
             .build();
-        ureq::Agent::config_builder()
+        let config = ureq::Agent::config_builder()
             .tls_config(tls)
             .timeout_global(Some(HTTP_TIMEOUT))
             .http_status_as_error(false)
             .max_redirects(0)
             .user_agent(concat!("EdgeHost/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .new_agent()
-    })
+            .build();
+        crate::net::agent(config, local)
+    };
+    if local {
+        LOCAL.get_or_init(make)
+    } else {
+        PUBLIC.get_or_init(make)
+    }
 }
 
 #[cfg(test)]
@@ -600,6 +612,18 @@ mod tests {
             stub_server("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
         let err = http_get(&grant(missing), &format!("http://127.0.0.1:{missing}/")).unwrap_err();
         assert!(err.starts_with("HTTP 404"), "{err}");
+    }
+
+    #[test]
+    fn http_get_cannot_reach_this_machine_through_a_non_loopback_name() {
+        let port =
+            stub_server("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nhi");
+        let grant = [crate::addin::HttpGrant {
+            host: "0.0.0.0".into(),
+            port: Some(port),
+        }];
+        let err = http_get(&grant, &format!("http://0.0.0.0:{port}/")).unwrap_err();
+        assert!(err.contains("resolves to this machine"), "{err}");
     }
 
     #[test]
