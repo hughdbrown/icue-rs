@@ -286,9 +286,11 @@ Verified on a XENEON EDGE (macOS, 2026-10):
 
 ## 9. Plugins
 
-EdgeHost provides **`widgetbuilder.filesystemprovider:FileSystem:1.0`**. Other plugins are not
-implemented yet: for those, `plugin<Module>_initialized` stays `false` and the facade is missing.
-`edgectl validate` shows which of your `required_plugins` are provided. Guard plugin use so your
+EdgeHost provides **`widgetbuilder.filesystemprovider:FileSystem:1.0`** built in. Any other plugin
+can come from an installed **Rhai add-in**, including new namespaces such as
+`edgehost.coinprices:CoinPrices:1.0` (see [`addins.md`](addins.md)). For a plugin that nothing
+provides, `plugin<Module>_initialized` stays `false` and the facade is missing.
+`edgectl validate` shows what provides each of your `required_plugins`. Guard plugin use so your
 widget still renders:
 
 ```js
@@ -360,7 +362,7 @@ node --test examples/widgets/portfolio/
 | Engine | QtWebEngine 6.9 (Chromium 130) | WebKit (WKWebView). No WebHID/WebSerial/WebUSB, File System Access or `queryLocalFonts`. |
 | Defaults | Evaluated by iCUE | Evaluated once per version in a hidden view; pages get concrete values (§3) |
 | Settings UI | iCUE widget settings | `edgectl layout set` until the configurator (M4) |
-| Plugins | Available | File System only (others from M3) |
+| Plugins | Available | File System built in; others from Rhai add-ins ([`addins.md`](addins.md)) |
 | Cross-origin `fetch` | Widget origin rules | Declare `url` permissions to bypass CORS (§5) |
 | Touch | Touch events on the Edge | Mouse events (§8) |
 | `iCUE.ipRegistryApiKey` | Corsair's key | Absent |

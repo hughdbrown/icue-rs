@@ -66,17 +66,21 @@ cargo clippy --all-targets -- -D warnings
 node --test crates/widget-runtime/shim/
 node --test examples/widgets/portfolio/
 node --test examples/widgets/git/
+node --test examples/widgets/coin-ticker/
 ```
 
 | Path | Contents |
 |---|---|
 | `crates/icuew-manifest` | Parse `manifest.json`, `<head>` controls and groups, `translation.json` |
 | `crates/edge-layout` | Edge grid, S/M/L/XL slots, display selection |
-| `crates/edge-plugins` | Plugins behind `window.plugins` (File System so far), path macros and grants |
+| `crates/edge-plugins` | Plugins behind `window.plugins`: File System built in, Rhai add-ins, path macros and grants |
 | `crates/widget-runtime` | Injection shim, `icuew://` asset server, Edge surface and web views |
 | `apps/edgectl` | Developer CLI |
 | `examples/widgets/hello-edge` | Test widget that displays the injected globals |
 | `examples/widgets/git` | Branch, upstream sync and recent activity of a local repo (File System plugin) |
+| `examples/widgets/coin-ticker` | Live crypto prices from the sample add-in |
+| `examples/addins/dev.edgehost.coin-prices` | Sample Rhai add-in: Coinbase spot prices as `window.plugins.Coinprices` |
 | `docs/` | Spec, review, and research notes (reverse-engineering findings, API reference) |
 
 Writing a widget? Start with [`docs/widget-developer-guide.md`](docs/widget-developer-guide.md).
+Writing a data provider (add-in) in Rhai? See [`docs/addins.md`](docs/addins.md).
