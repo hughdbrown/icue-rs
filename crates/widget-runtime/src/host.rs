@@ -33,6 +33,8 @@ pub struct RunOptions {
     /// Shared `common/` folder served at `/common/` when the widget has no copy of its own.
     /// iCUE ships one beside its built-in widgets; defaults to a `common` folder beside the widget.
     pub common_dir: Option<PathBuf>,
+    /// Installed Rhai add-ins that may provide the widget's plugins.
+    pub addins_dir: Option<PathBuf>,
 }
 
 /// Run a single widget until its window is closed or Escape is pressed.
@@ -65,6 +67,7 @@ pub fn run_one(opts: &RunOptions) -> Result<()> {
             language: "en".to_owned(),
             escape_closes: true,
             web_data_dir: std::env::temp_dir().join("edgehost-run-one"),
+            addins_dir: opts.addins_dir.clone(),
         },
         sink,
     )?;

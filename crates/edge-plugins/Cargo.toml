@@ -10,10 +10,13 @@ version.workspace = true
 [dependencies]
 icuew-manifest.workspace = true
 notify = "8"
+rhai = { version = "1.26", features = ["serde"] }
 serde.workspace = true
 serde_json.workspace = true
 similar = "2"
 thiserror.workspace = true
+toml = "1"
+ureq = { version = "3", default-features = false, features = ["native-tls", "gzip"] }
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -16,7 +16,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-pub use install::{InstallError, InstallOutcome, install, unpack};
+pub use install::{AddinOutcome, InstallError, InstallOutcome, install, install_addin, unpack};
 pub use layout::{Instance, InstanceId, Layout, LayoutError, Page};
 
 use icuew_manifest::{WidgetDef, WidgetId};
@@ -101,6 +101,12 @@ impl Store {
             })?;
         }
         Ok(store)
+    }
+
+    /// Where Rhai add-ins are installed, one folder per add-in id.
+    #[must_use]
+    pub fn addins_dir(&self) -> PathBuf {
+        self.root.join("addins")
     }
 
     /// The data folder.

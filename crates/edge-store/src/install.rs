@@ -8,6 +8,7 @@ use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
 
+use edge_plugins::addin::{Addin, Registry};
 use icuew_manifest::{Report, WidgetId, validate_dir};
 
 use crate::Store;
@@ -52,6 +53,9 @@ pub enum InstallError {
     /// Validation found errors.
     #[error("the widget failed validation")]
     Invalid(Box<Report>),
+    /// The add-in folder is not a usable add-in.
+    #[error("{0}")]
+    InvalidAddin(String),
 }
 
 /// A successful install.
@@ -105,6 +109,58 @@ pub fn install(store: &Store, source: &Path) -> Result<InstallOutcome, InstallEr
         replaced,
         report,
     })
+}
+
+/// A successful add-in install.
+#[derive(Debug)]
+pub struct AddinOutcome {
+    /// The installed add-in, loaded from its new place.
+    pub addin: Addin,
+    /// Whether an existing copy was replaced.
+    pub replaced: bool,
+}
+
+/// Install the add-in folder `source` into `store`'s `addins/<id>/`, replacing an older copy.
+///
+/// # Errors
+///
+/// I/O, safety and size errors, and [`InstallError::InvalidAddin`] when the add-in does not load,
+/// provides a built-in plugin, or provides the same plugin as another installed add-in.
+pub fn install_addin(store: &Store, source: &Path) -> Result<AddinOutcome, InstallError> {
+    let staging = tempfile::Builder::new()
+        .prefix("addin-")
+        .tempdir_in(store.tmp_dir())
+        .map_err(|e| io_err("creating staging folder in", &store.tmp_dir(), e))?;
+    let root = staging.path().join("addin");
+    copy_tree(source, &root, &mut Budget::default())?;
+    let addin = Addin::load(&root).map_err(|e| InstallError::InvalidAddin(e.to_string()))?;
+    if edge_plugins::builtin(&addin.provides).is_some() {
+        return Err(InstallError::InvalidAddin(format!(
+            "{}:{} is built into EdgeHost",
+            addin.provides.module, addin.provides.name
+        )));
+    }
+    let (installed, _) = Registry::load(&store.addins_dir());
+    if let Some(other) = installed.iter().find(|o| {
+        o.id != addin.id
+            && o.provides.module == addin.provides.module
+            && o.provides.name == addin.provides.name
+    }) {
+        return Err(InstallError::InvalidAddin(format!(
+            "add-in {} already provides {}:{}",
+            other.id, addin.provides.module, addin.provides.name
+        )));
+    }
+    let dest = store.addins_dir().join(&addin.id);
+    let replaced = dest.exists();
+    if replaced {
+        fs::remove_dir_all(&dest).map_err(|e| io_err("removing old copy", &dest, e))?;
+    }
+    fs::create_dir_all(store.addins_dir())
+        .map_err(|e| io_err("creating", &store.addins_dir(), e))?;
+    fs::rename(&root, &dest).map_err(|e| io_err("moving add-in into", &dest, e))?;
+    let addin = Addin::load(&dest).map_err(|e| InstallError::InvalidAddin(e.to_string()))?;
+    Ok(AddinOutcome { addin, replaced })
 }
 
 /// Unpack `source` (archive or folder) into `dest` and return the widget's root inside it: `dest`
@@ -288,6 +344,45 @@ mod tests {
             }
         }
         zw.finish().unwrap();
+    }
+
+    fn coin_prices() -> PathBuf {
+        PathBuf::from(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../examples/addins/dev.edgehost.coin-prices"
+        ))
+    }
+
+    #[test]
+    fn installs_and_replaces_an_addin_and_refuses_a_second_provider() {
+        let home = tempfile::tempdir().unwrap();
+        let store = Store::open(home.path()).unwrap();
+        let first = install_addin(&store, &coin_prices()).unwrap();
+        assert_eq!(first.addin.id, "dev.edgehost.coin-prices");
+        assert!(!first.replaced);
+        assert_eq!(
+            first.addin.dir,
+            store.addins_dir().join("dev.edgehost.coin-prices")
+        );
+        assert!(install_addin(&store, &coin_prices()).unwrap().replaced);
+
+        // Same plugin under another id.
+        let copy = home.path().join("copy");
+        copy_tree(&coin_prices(), &copy, &mut Budget::default()).unwrap();
+        let toml = fs::read_to_string(copy.join("addin.toml")).unwrap();
+        fs::write(
+            copy.join("addin.toml"),
+            toml.replace("dev.edgehost.coin-prices", "dev.other.prices"),
+        )
+        .unwrap();
+        let err = install_addin(&store, &copy).unwrap_err().to_string();
+        assert!(err.contains("already provides"), "{err}");
+
+        fs::write(copy.join("main.rhai"), "fn handle(m, a) {").unwrap();
+        assert!(matches!(
+            install_addin(&store, &copy),
+            Err(InstallError::InvalidAddin(_))
+        ));
     }
 
     #[test]

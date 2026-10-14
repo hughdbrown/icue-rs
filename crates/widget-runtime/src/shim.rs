@@ -10,7 +10,9 @@
 //!   `data-default` expression and posts the results back (`{k: "evaluated", values}`).
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
+use edge_plugins::addin::Registry;
 use icuew_manifest::{ControlKind, UrlPermission, WidgetDef};
 use serde::Serialize;
 use serde_json::Value;
@@ -59,6 +61,8 @@ pub struct ShimConfig {
     pub escape_closes: bool,
     /// Log pointer and mouse events to the host (`EDGEHOST_DEBUG_INPUT=1`).
     pub debug_input: bool,
+    /// Installed add-ins, which may provide `required_plugins`.
+    pub addins: Arc<Registry>,
 }
 
 /// What the injected script does.
@@ -105,8 +109,8 @@ struct PropPayload<'a> {
 struct PluginPayload {
     name: String,
     available: bool,
-    methods: &'static [&'static str],
-    signals: &'static [&'static str],
+    methods: Vec<String>,
+    signals: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -177,7 +181,7 @@ pub fn render(
             .required_plugins
             .iter()
             .map(
-                |wanted| match edge_plugins::facade(wanted).filter(|_| !evaluating) {
+                |wanted| match edge_plugins::facade(wanted, &cfg.addins).filter(|_| !evaluating) {
                     Some(f) => PluginPayload {
                         name: f.name,
                         available: true,
@@ -187,8 +191,8 @@ pub fn render(
                     None => PluginPayload {
                         name: wanted.facade_name(),
                         available: false,
-                        methods: &[],
-                        signals: &[],
+                        methods: Vec::new(),
+                        signals: Vec::new(),
                     },
                 },
             )
@@ -230,6 +234,7 @@ mod tests {
             base_url: "icuew://abc/".into(),
             escape_closes: false,
             debug_input: false,
+            addins: Arc::default(),
         }
     }
 

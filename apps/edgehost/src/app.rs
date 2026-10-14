@@ -104,6 +104,7 @@ impl App {
                 language: "en".to_owned(),
                 escape_closes: false,
                 web_data_dir: self.store.root().join("webdata"),
+                addins_dir: Some(self.store.addins_dir()),
             },
             sink,
         )?;

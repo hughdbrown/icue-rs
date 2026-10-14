@@ -112,6 +112,7 @@ mod tests {
                     kind: PathPermissionKind::Folder,
                     path: "<Home>".into(),
                 }],
+                addins: Arc::default(),
             },
         );
         assert_eq!(answer(&host, "w", "reset", None), (200, json!({"seq": 0})));

@@ -22,6 +22,7 @@ use edge_layout::{
     Cell, DisplayChoice, Fit, Orientation, PxRect, Selection, Slot, fit_panel, select_display,
     slot_rect,
 };
+use edge_plugins::addin::Registry;
 use edge_plugins::paths::Macros;
 use edge_plugins::{HostContext, PluginHost};
 use icuew_manifest::WidgetDef;
@@ -73,6 +74,8 @@ pub struct SurfaceOptions {
     pub escape_closes: bool,
     /// Where per-instance browser storage lives on platforms that need a folder (Linux).
     pub web_data_dir: PathBuf,
+    /// Installed Rhai add-ins (`<store>/addins`); `None` for none.
+    pub addins_dir: Option<PathBuf>,
 }
 
 /// Something a web view reported to the host.
@@ -277,13 +280,14 @@ impl Surface {
     /// The slot does not fit the grid, or the view cannot be created.
     pub fn evaluate(&mut self, instance: &WidgetInstance) -> Result<()> {
         let rect = self.slot_bounds(instance)?;
+        // Evaluate views see every plugin as unavailable, so they need no add-ins.
         let script = shim::render(
             &instance.def,
-            &self.shim_config(instance),
+            &self.shim_config(instance, Arc::default()),
             ShimMode::Evaluate,
         )
         .context("rendering the evaluate shim")?;
-        let view = self.build_view(instance, &script, EVAL_PATH, rect, false)?;
+        let view = self.build_view(instance, &script, EVAL_PATH, rect, None)?;
         self.evaluations.insert(instance.id, view);
         Ok(())
     }
@@ -304,14 +308,15 @@ impl Surface {
         values: &BTreeMap<String, Value>,
     ) -> Result<()> {
         let rect = self.slot_bounds(instance)?;
+        let addins = self.addins(instance);
         let script = shim::render(
             &instance.def,
-            &self.shim_config(instance),
+            &self.shim_config(instance, Arc::clone(&addins)),
             ShimMode::Runtime(values),
         )
         .context("rendering the widget shim")?;
         self.views.remove(&instance.id);
-        let view = self.build_view(instance, &script, "/index.html", rect, true)?;
+        let view = self.build_view(instance, &script, "/index.html", rect, Some(addins))?;
         view.zoom(self.fit.scale).context("setting widget zoom")?;
         if self.opts.escape_closes {
             if let Err(e) = view.focus() {
@@ -399,7 +404,23 @@ impl Surface {
         ))
     }
 
-    fn shim_config(&self, instance: &WidgetInstance) -> ShimConfig {
+    /// The installed add-ins, read afresh so newly installed ones apply at the next mount. Only
+    /// widgets that require plugins pay for the scan.
+    fn addins(&self, instance: &WidgetInstance) -> Arc<Registry> {
+        let Some(dir) = &self.opts.addins_dir else {
+            return Arc::default();
+        };
+        if instance.def.manifest.required_plugins.is_empty() {
+            return Arc::default();
+        }
+        let (registry, rejected) = Registry::load(dir);
+        for r in rejected {
+            eprintln!("skipping add-in {}: {}", r.dir.display(), r.reason);
+        }
+        Arc::new(registry)
+    }
+
+    fn shim_config(&self, instance: &WidgetInstance, addins: Arc<Registry>) -> ShimConfig {
         ShimConfig {
             language: self.opts.language.clone(),
             fps_limit: 30,
@@ -410,6 +431,7 @@ impl Surface {
             base_url: format!("{SCHEME}://{}/", instance.id.simple()),
             escape_closes: self.opts.escape_closes,
             debug_input: std::env::var_os("EDGEHOST_DEBUG_INPUT").is_some(),
+            addins,
         }
     }
 
@@ -419,16 +441,18 @@ impl Surface {
         script: &str,
         path: &str,
         bounds: Rect,
-        visible: bool,
+        addins: Option<Arc<Registry>>,
     ) -> Result<WebView> {
+        // Only shown widgets get add-ins and providers; evaluate views see every plugin as
+        // unavailable.
+        let visible = addins.is_some();
         let serve_root = instance.root.clone();
         let serve_common = self.opts.common_dir.clone();
         let permissions = Arc::new(instance.def.manifest.url_permissions());
         let label = instance.def.manifest.id.to_string();
         let id = instance.id;
         let sink = Rc::clone(&self.sink);
-        // Only shown widgets get providers; evaluate views see every plugin as unavailable.
-        let plugin_host = visible.then(|| plugin_host(instance)).flatten();
+        let plugin_host = addins.and_then(|a| plugin_host(instance, a));
         let plugin_label = label.clone();
         let devtools = self.opts.devtools;
         let Self {
@@ -487,7 +511,7 @@ impl Surface {
 }
 
 /// Providers for `instance`'s supported `required_plugins`, if it has any.
-fn plugin_host(instance: &WidgetInstance) -> Option<Arc<PluginHost>> {
+fn plugin_host(instance: &WidgetInstance, addins: Arc<Registry>) -> Option<Arc<PluginHost>> {
     let Some(macros) = Macros::from_env() else {
         eprintln!("warning: $HOME is not set; plugins are disabled");
         return None;
@@ -497,6 +521,7 @@ fn plugin_host(instance: &WidgetInstance) -> Option<Arc<PluginHost>> {
         &HostContext {
             macros,
             path_permissions: instance.def.manifest.path_permissions(),
+            addins,
         },
     );
     (!host.is_empty()).then(|| Arc::new(host))

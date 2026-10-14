@@ -1,10 +1,13 @@
 //! `edgectl`: EdgeHost developer and administration CLI.
 
+mod addin;
+
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use edge_layout::{Cell, DisplayChoice, Orientation, Slot};
+use edge_plugins::addin::Registry;
 use edge_store::{InstallError, Store};
 use icuew_manifest::{Report, Severity, WidgetDef, WidgetId, validate_dir};
 use serde_json::Value;
@@ -56,6 +59,11 @@ enum Command {
     Layout {
         #[command(subcommand)]
         command: LayoutCommand,
+    },
+    /// Check, install, list, remove or try out Rhai add-ins (data providers for widgets).
+    Addin {
+        #[command(subcommand)]
+        command: addin::AddinCommand,
     },
     /// Run one widget folder on the XENEON EDGE, or in a scaled window when no Edge is attached.
     RunOne {
@@ -159,7 +167,7 @@ fn main() -> Result<()> {
         Store::open(&root).with_context(|| format!("opening data folder {}", root.display()))
     };
     match cli.command {
-        Command::Validate { ref path } => validate(path),
+        Command::Validate { ref path } => validate(path, &addins(store().ok().as_ref())),
         Command::Install { ref path } => install(&store()?, path),
         Command::List => list(&store()?),
         Command::Uninstall {
@@ -169,6 +177,7 @@ fn main() -> Result<()> {
         } => uninstall(&store()?, id, version.as_deref(), force),
         Command::Displays => displays(),
         Command::Layout { ref command } => layout(&store()?, command),
+        Command::Addin { ref command } => addin::run(&store, command),
         Command::RunOne {
             dir,
             slot,
@@ -193,11 +202,24 @@ fn main() -> Result<()> {
             windowed_scale: scale,
             devtools,
             common_dir,
+            addins_dir: store().ok().map(|s| s.addins_dir()),
         }),
     }
 }
 
-fn validate(path: &Path) -> Result<()> {
+/// The add-ins installed in `store` (none without a store), reporting unusable ones.
+fn addins(store: Option<&Store>) -> Registry {
+    let Some(store) = store else {
+        return Registry::default();
+    };
+    let (registry, rejected) = Registry::load(&store.addins_dir());
+    for r in rejected {
+        eprintln!("skipping add-in {}: {}", r.dir.display(), r.reason);
+    }
+    registry
+}
+
+fn validate(path: &Path, addins: &Registry) -> Result<()> {
     let staging = tempfile::tempdir().context("creating a temporary folder")?;
     let root = if path.is_dir() {
         path.to_path_buf()
@@ -207,7 +229,7 @@ fn validate(path: &Path) -> Result<()> {
     };
     let report = validate_dir(&root);
     if let Some(def) = &report.widget {
-        describe(def);
+        describe(def, addins);
     }
     print_report(&report);
     if report.has_errors() {
@@ -217,7 +239,7 @@ fn validate(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn describe(def: &WidgetDef) {
+fn describe(def: &WidgetDef, addins: &Registry) {
     let m = &def.manifest;
     println!("{} {} — {}", m.id, m.version, m.name);
     println!("  author:       {}", m.author);
@@ -234,10 +256,11 @@ fn describe(def: &WidgetDef) {
         .collect();
     println!("  devices:      {}", devices.join(", "));
     for p in &m.required_plugins {
-        let status = if edge_plugins::facade(p).is_some() {
-            "provided"
-        } else {
-            "not available in EdgeHost"
+        let status = match (edge_plugins::builtin(p), addins.find(p)) {
+            (Some(d), _) if d.satisfies(p) => "built in".to_owned(),
+            (Some(d), _) => format!("built in at {}.{}, older than required", d.major, d.minor),
+            (None, Some(a)) => format!("add-in {}", a.id),
+            (None, None) => "not available in EdgeHost".to_owned(),
         };
         println!(
             "  plugin:       {p}  → window.plugins.{} ({status})",

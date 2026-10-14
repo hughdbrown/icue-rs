@@ -1,0 +1,13 @@
+# Sample EdgeHost add-in: cryptocurrency spot prices from Coinbase's public API (no key needed).
+# Widgets require it as "edgehost.coinprices:CoinPrices:1.0" and use window.plugins.Coinprices.
+id = "dev.edgehost.coin-prices"
+module = "edgehost.coinprices"
+name = "CoinPrices"
+version = "1.0"
+description = "Spot prices (for example BTC-USD) from api.coinbase.com, refreshed every 30 seconds."
+methods = ["getPrice", "watch", "unwatch"]
+signals = ["priceChanged", "priceError"]
+poll_ms = 30000
+
+[permissions]
+http = ["api.coinbase.com"]

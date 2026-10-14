@@ -5,10 +5,13 @@
 //! the page to collect ([`PluginHost::wait_events`]). The transport between the page and the host
 //! lives in `widget-runtime`; nothing here depends on a web view.
 //!
-//! Implemented: `widgetbuilder.filesystemprovider:FileSystem:1.0` ([`filesystem`]).
+//! Built in: `widgetbuilder.filesystemprovider:FileSystem:1.0` ([`filesystem`]). Any other plugin
+//! can come from a Rhai add-in ([`addin`], [`rhai_provider`]); built-ins win over add-ins.
 
+pub mod addin;
 pub mod filesystem;
 pub mod paths;
+pub mod rhai_provider;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
@@ -18,8 +21,10 @@ use icuew_manifest::{PathPermission, PluginRef};
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::addin::Registry;
 use crate::filesystem::FileSystem;
 use crate::paths::{Grants, Macros};
+use crate::rhai_provider::RhaiProvider;
 
 /// Signals kept for a page that is not collecting them; older ones are dropped.
 const QUEUE_LIMIT: usize = 1000;
@@ -91,28 +96,42 @@ impl Descriptor {
 
 const PROVIDERS: &[Descriptor] = &[filesystem::DESCRIPTOR];
 
+/// The built-in provider for `wanted`, if any. Matches module and name only, so an add-in cannot
+/// provide another version of a built-in plugin.
+#[must_use]
+pub fn builtin(wanted: &PluginRef) -> Option<&'static Descriptor> {
+    PROVIDERS
+        .iter()
+        .find(|d| d.module == wanted.module && d.name == wanted.name)
+}
+
 /// The JS facade the page builds for a supported plugin.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Facade {
     /// `window.plugins` key, e.g. `Filesystemprovider`.
     pub name: String,
     /// Method names.
-    pub methods: &'static [&'static str],
+    pub methods: Vec<String>,
     /// Signal names.
-    pub signals: &'static [&'static str],
+    pub signals: Vec<String>,
 }
 
-/// The facade for `wanted`, if EdgeHost provides it.
+/// The facade for `wanted`, if EdgeHost or one of `addins` provides it.
 #[must_use]
-pub fn facade(wanted: &PluginRef) -> Option<Facade> {
-    PROVIDERS
-        .iter()
-        .find(|d| d.satisfies(wanted))
-        .map(|d| Facade {
+pub fn facade(wanted: &PluginRef, addins: &Registry) -> Option<Facade> {
+    let owned = |names: &[&str]| names.iter().map(|&n| n.to_owned()).collect();
+    if let Some(d) = builtin(wanted) {
+        return d.satisfies(wanted).then(|| Facade {
             name: wanted.facade_name(),
-            methods: d.methods,
-            signals: d.signals,
-        })
+            methods: owned(d.methods),
+            signals: owned(d.signals),
+        });
+    }
+    addins.find(wanted).map(|a| Facade {
+        name: wanted.facade_name(),
+        methods: a.methods.clone(),
+        signals: a.signals.clone(),
+    })
 }
 
 /// A signal waiting for the page.
@@ -169,6 +188,8 @@ pub struct HostContext {
     pub macros: Macros,
     /// Declared `file` / `folder` permissions.
     pub path_permissions: Vec<PathPermission>,
+    /// Installed add-ins.
+    pub addins: Arc<Registry>,
 }
 
 /// The plugins of one widget instance.
@@ -185,7 +206,7 @@ impl PluginHost {
         let queue = Arc::new(Queue::default());
         let mut providers: BTreeMap<String, Box<dyn Provider>> = BTreeMap::new();
         for wanted in required {
-            let Some(facade) = facade(wanted) else {
+            let Some(facade) = facade(wanted, &ctx.addins) else {
                 continue;
             };
             let emit: Emitter = {
@@ -199,6 +220,13 @@ impl PluginHost {
                     facade.name,
                     Box::new(FileSystem::new(ctx.macros.clone(), grants, emit)),
                 );
+            } else if let Some(addin) = ctx.addins.find(wanted) {
+                match RhaiProvider::start(Arc::clone(addin), emit) {
+                    Ok(p) => {
+                        providers.insert(facade.name, Box::new(p));
+                    }
+                    Err(e) => eprintln!("{e}"),
+                }
             }
         }
         Self { providers, queue }
@@ -277,21 +305,26 @@ mod tests {
                     kind: icuew_manifest::PathPermissionKind::Folder,
                     path: "<Home>".into(),
                 }],
+                addins: Arc::default(),
             },
         )
     }
 
     #[test]
     fn version_negotiation() {
-        assert!(facade(&fs_ref(0)).is_some());
-        assert!(facade(&fs_ref(1)).is_none(), "newer minor than provided");
+        let none = Registry::default();
+        assert!(facade(&fs_ref(0), &none).is_some());
+        assert!(
+            facade(&fs_ref(1), &none).is_none(),
+            "newer minor than provided"
+        );
         let sensors = "widgetbuilder.sensorsdataprovider:Sensors:1.0"
             .parse()
             .unwrap();
-        assert!(facade(&sensors).is_none());
-        let f = facade(&fs_ref(0)).unwrap();
+        assert!(facade(&sensors, &none).is_none());
+        let f = facade(&fs_ref(0), &none).unwrap();
         assert_eq!(f.name, "Filesystemprovider");
-        assert!(f.methods.contains(&"watchPath"));
+        assert!(f.methods.iter().any(|m| m == "watchPath"));
     }
 
     #[test]
