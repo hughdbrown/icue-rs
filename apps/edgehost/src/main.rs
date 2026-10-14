@@ -73,8 +73,15 @@ fn main() -> Result<()> {
         event_loop.create_proxy(),
     );
 
+    let mut next_poll = Instant::now() + POLL;
     event_loop.run(move |event, target, control_flow| {
-        *control_flow = ControlFlow::WaitUntil(Instant::now() + POLL);
+        // A fixed deadline: re-arming "now + POLL" on every event would starve the poll while
+        // events keep arriving (taps, web-view activity).
+        if Instant::now() >= next_poll {
+            app.poll_layout(target);
+            next_poll = Instant::now() + POLL;
+        }
+        *control_flow = ControlFlow::WaitUntil(next_poll);
         match event {
             Event::NewEvents(StartCause::Init) => {
                 if let Err(e) = app.start(target) {
@@ -82,7 +89,6 @@ fn main() -> Result<()> {
                     *control_flow = ControlFlow::Exit;
                 }
             }
-            Event::NewEvents(StartCause::ResumeTimeReached { .. }) => app.poll_layout(target),
             Event::UserEvent(AppEvent::Runtime(e)) => app.on_runtime(e),
             Event::UserEvent(AppEvent::Menu(id)) => {
                 if app.on_menu(&id, target) {
