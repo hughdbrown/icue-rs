@@ -219,14 +219,6 @@ query string, or ask for header support.
 
 ---
 
-### Host data sources
-
-Widgets cannot read the disk or run programs, but EdgeHost provides read-only **data sources** on
-the widget's own origin at `/__edgehost/<source>/…`, limited to folders declared with
-`{"type": "folder", "path": "<Home>/projects"}` permissions. The first is **git** (status, log,
-commit details, and the terminal's current repository). See [`data-sources.md`](data-sources.md) and
-`examples/widgets/git`.
-
 ## 6. Files, modules and `common/`
 
 - Reference your files with relative paths (`scripts/main.js`, `resources/x.png`). EdgeHost serves

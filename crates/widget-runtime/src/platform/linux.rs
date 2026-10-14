@@ -4,7 +4,7 @@
 
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context, Result};
@@ -84,16 +84,6 @@ impl Platform for Linux {
 
     fn builder(storage: &mut WebContext, _instance: Uuid) -> WebViewBuilder<'_> {
         WebViewBuilder::new_with_web_context(storage)
-    }
-
-    fn runtime_dir(home: &Path) -> PathBuf {
-        std::env::var_os("XDG_DATA_HOME")
-            .filter(|d| !d.is_empty())
-            .map_or_else(|| home.join(".local/share"), PathBuf::from)
-    }
-
-    fn videos_dir(home: &Path) -> PathBuf {
-        home.join("Videos")
     }
 
     fn reveal(path: &Path) -> io::Result<()> {

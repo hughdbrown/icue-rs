@@ -6,7 +6,6 @@
 //! - [`surface`] opens the Edge surface (or a scaled stand-in window) and hosts widget views.
 //! - [`display`] describes connected displays (including EDID ids) for selection.
 //! - [`proxy`] performs `fetch()` for domains a widget declares, so APIs without CORS work.
-//! - [`sources`] serves read-only host data (git) on `/__edgehost/…` for declared folders.
 //! - [`host`] implements `edgectl run-one`.
 
 pub mod assets;
@@ -15,7 +14,6 @@ pub mod host;
 pub mod platform;
 pub mod proxy;
 pub mod shim;
-pub mod sources;
 pub mod surface;
 
 pub use display::list_displays;
