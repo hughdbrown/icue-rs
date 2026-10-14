@@ -61,3 +61,5 @@ node --test examples/widgets/portfolio/
 | `apps/edgectl` | Developer CLI |
 | `examples/widgets/hello-edge` | Test widget that displays the injected globals |
 | `docs/` | Spec, review, and research notes (reverse-engineering findings, API reference) |
+
+Writing a widget? Start with [`docs/widget-developer-guide.md`](docs/widget-developer-guide.md).
