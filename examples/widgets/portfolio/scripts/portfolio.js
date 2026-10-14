@@ -33,6 +33,7 @@ const setting = (name, fallback) => (typeof window[name] === "undefined" || wind
 
 let state = null;
 let quotes = {};
+let quotesRange = "1d"; // period the current quotes were fetched for
 let timer = null;
 let requestSeq = 0;
 
@@ -105,7 +106,15 @@ async function fetchSeries(symbol, range) {
 	if (range === "1d" && Number.isFinite(meta.previousClose)) base = meta.previousClose;
 	if (!Number.isFinite(base)) base = points.length ? points[0][1] : price;
 	if (!Number.isFinite(price)) throw new Error("no price");
-	return { symbol, price, base, time: meta.regularMarketTime, points, currency: meta.currency || "USD" };
+	return {
+		symbol,
+		price,
+		base,
+		time: meta.regularMarketTime,
+		points,
+		currency: meta.currency || "USD",
+		gmtoffset: Number.isFinite(meta.gmtoffset) ? meta.gmtoffset : -5 * 3600,
+	};
 }
 
 async function refresh() {
@@ -120,6 +129,7 @@ async function refresh() {
 	const results = await Promise.allSettled(state.holdings.map((h) => fetchSeries(h.symbol, range)));
 	if (seq !== requestSeq) return; // a newer refresh (e.g. period change) superseded this one
 	quotes = {};
+	quotesRange = range;
 	results.forEach((r, i) => {
 		const symbol = state.holdings[i].symbol;
 		quotes[symbol] = r.status === "fulfilled" ? r.value : { symbol, error: String((r.reason && r.reason.message) || r.reason) };
@@ -141,15 +151,16 @@ function rowsWithQuotes() {
 		.sort((a, b) => (Number.isFinite(b.value) ? b.value : -1) - (Number.isFinite(a.value) ? a.value : -1));
 }
 
-// Portfolio value over the period: at each timestamp, shares × last known close (base before the
-// first bar), starting from the period's base value and ending at the current value.
+// Portfolio value over the period as [{t, v}]: the base value, then at each bar time shares × last
+// known close (base before a ticker's first bar), then the current value "now".
 function portfolioSeries(rows) {
 	const ok = rows.filter((r) => r.q && !r.q.error);
 	if (ok.length === 0) return [];
 	const times = [...new Set(ok.flatMap((r) => r.q.points.map((p) => p[0])))].sort((a, b) => a - b);
 	const cursor = ok.map(() => 0);
 	const last = ok.map((r) => r.q.base);
-	const series = [ok.reduce((s, r) => s + r.shares * r.q.base, 0)];
+	const nowSec = Math.floor(Date.now() / 1000);
+	const series = [{ t: times.length ? times[0] : nowSec, v: ok.reduce((s, r) => s + r.shares * r.q.base, 0) }];
 	for (const t of times) {
 		let total = 0;
 		ok.forEach((r, k) => {
@@ -160,10 +171,90 @@ function portfolioSeries(rows) {
 			}
 			total += r.shares * last[k];
 		});
-		series.push(total);
+		series.push({ t, v: total });
 	}
-	series.push(ok.reduce((s, r) => s + r.value, 0));
+	series.push({ t: Math.max(nowSec, times.length ? times[times.length - 1] : nowSec), v: ok.reduce((s, r) => s + r.value, 0) });
 	return series;
+}
+
+// ---------- timeline ----------
+
+const ET = "America/New_York";
+const etFormat = (options) => new Intl.DateTimeFormat("en-US", { timeZone: ET, ...options });
+const etDay = etFormat({ year: "numeric", month: "2-digit", day: "2-digit" });
+const etMonth = etFormat({ year: "numeric", month: "2-digit" });
+const LABELS = {
+	hour: etFormat({ hour: "numeric" }),
+	weekday: etFormat({ weekday: "short" }),
+	monthDay: etFormat({ month: "short", day: "numeric" }),
+	month: etFormat({ month: "short" }),
+	monthYear: etFormat({ month: "short", year: "numeric" }),
+};
+const at = (t) => new Date(t * 1000);
+
+// Monday-based week number of an ET calendar date.
+function etWeek(t) {
+	const [m, d, y] = etDay.format(at(t)).split("/").map(Number);
+	const days = Math.floor(Date.UTC(y, m - 1, d) / 86400000);
+	return Math.floor((days + 3) / 7); // 1970-01-01 was a Thursday
+}
+
+// x position (0..1000) of each series point. 1D uses real session time (9:30–16:00 ET of the
+// bars' day) so a mid-session line stops at "now"; longer periods space bars evenly, which
+// compresses nights and weekends as finance charts do.
+function xScale(series, range, gmtoffset) {
+	if (range === "1d" && series.length > 2) {
+		const local = series[1].t + gmtoffset;
+		const midnight = Math.floor(local / 86400) * 86400 - gmtoffset;
+		const start = midnight + 9.5 * 3600;
+		const end = midnight + 16 * 3600;
+		series[0].t = start;
+		series[series.length - 1].t = Math.min(series[series.length - 1].t, end);
+		const x = (p) => (Math.min(Math.max((p.t - start) / (end - start), 0), 1)) * 1000;
+		return { x, byTime: true, start, end };
+	}
+	const n = series.length;
+	return { x: (_p, i) => (n > 1 ? (i / (n - 1)) * 1000 : 0), byTime: false };
+}
+
+// Tick marks [{x, label}] for the period, thinned to fit `width` pixels.
+function timelineTicks(series, scale, range, width) {
+	const ticks = [];
+	if (scale.byTime) {
+		for (let h = 10; h <= 16; h += 1) {
+			const t = scale.start + (h - 9.5) * 3600;
+			ticks.push({ x: scale.x({ t }), label: LABELS.hour.format(at(t)) });
+		}
+	} else if (series.length > 1) {
+		// Months show the year on the first tick and wherever the year changes ("Oct 2025 … Feb 2026 …").
+		const year = (t) => etMonth.format(at(t)).slice(-4);
+		const monthLabel = (t, previousT) =>
+			(previousT === undefined || year(t) !== year(previousT) ? LABELS.monthYear : LABELS.month).format(at(t));
+		const [keyOf, label] = {
+			"5d": [(t) => etDay.format(at(t)), (t) => LABELS.weekday.format(at(t))],
+			"1mo": [etWeek, (t) => LABELS.monthDay.format(at(t))],
+		}[range] || [(t) => etMonth.format(at(t)), monthLabel];
+		let previous = null;
+		// Skip the base point (index 0): it belongs to the period before.
+		for (let i = 1; i < series.length - 1; i += 1) {
+			const key = keyOf(series[i].t);
+			if (key !== previous) {
+				ticks.push({ x: scale.x(series[i], i), t: series[i].t });
+				previous = key;
+			}
+		}
+		const kept = thin(ticks, width);
+		return kept.map((tick, i) => ({ x: tick.x, label: label(tick.t, i === 0 ? undefined : kept[i - 1].t) }));
+	}
+	return thin(ticks, width);
+}
+
+// Keep every k-th tick so labels (~84 px each) fit in `width`.
+function thin(ticks, width) {
+	const maxLabels = Math.max(3, Math.floor(width / 84));
+	if (ticks.length <= maxLabels) return ticks;
+	const step = Math.ceil(ticks.length / maxLabels);
+	return ticks.filter((_, i) => i % step === 0);
 }
 
 // ---------- rendering ----------
@@ -201,27 +292,58 @@ function renderPeriods() {
 	);
 }
 
-function renderChart(series, trend) {
+function renderChart(series, trend, range) {
 	const line = $("line");
 	const area = $("area");
 	const baseline = $("baseline");
+	const grid = $("grid");
+	const timeline = $("timeline");
 	document.documentElement.style.setProperty("--trend", trend < 0 ? "var(--down)" : "var(--up)");
 	if (series.length < 2) {
 		line.setAttribute("points", "");
 		area.setAttribute("d", "");
+		grid.replaceChildren();
+		timeline.replaceChildren();
 		return;
 	}
-	const min = Math.min(...series);
-	const max = Math.max(...series);
+	const gmtoffset = (Object.values(quotes).find((q) => !q.error) || {}).gmtoffset ?? -5 * 3600;
+	const scale = xScale(series, range, gmtoffset);
+	const values = series.map((p) => p.v);
+	const min = Math.min(...values);
+	const max = Math.max(...values);
 	const span = max - min || 1;
-	const x = (i) => (i / (series.length - 1)) * 1000;
 	const y = (v) => 290 - ((v - min) / span) * 280;
-	const pts = series.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+	const pts = series.map((p, i) => `${scale.x(p, i).toFixed(1)},${y(p.v).toFixed(1)}`);
+	const lastX = scale.x(series[series.length - 1], series.length - 1).toFixed(1);
+	const firstX = scale.x(series[0], 0).toFixed(1);
 	line.setAttribute("points", pts.join(" "));
-	area.setAttribute("d", `M0,300 L${pts.join(" L")} L1000,300 Z`);
-	const by = y(series[0]).toFixed(1);
+	area.setAttribute("d", `M${firstX},300 L${pts.join(" L")} L${lastX},300 Z`);
+	const by = y(series[0].v).toFixed(1);
 	baseline.setAttribute("y1", by);
 	baseline.setAttribute("y2", by);
+
+	const ticks = timelineTicks(series, scale, range, timeline.clientWidth || 600);
+	const svgNs = "http://www.w3.org/2000/svg";
+	grid.replaceChildren(
+		...ticks.map((tick) => {
+			const l = document.createElementNS(svgNs, "line");
+			l.setAttribute("x1", tick.x.toFixed(1));
+			l.setAttribute("x2", tick.x.toFixed(1));
+			l.setAttribute("y1", "0");
+			l.setAttribute("y2", "300");
+			return l;
+		}),
+	);
+	timeline.replaceChildren(
+		...ticks.map((tick) => {
+			const span = document.createElement("span");
+			span.textContent = tick.label;
+			span.style.left = `${tick.x / 10}%`;
+			if (tick.x < 40) span.className = "first";
+			else if (tick.x > 960) span.className = "last";
+			return span;
+		}),
+	);
 }
 
 function cell(text, className) {
@@ -266,7 +388,7 @@ function render() {
 		}),
 	);
 
-	renderChart(portfolioSeries(rows), change);
+	renderChart(portfolioSeries(rows), change, quotesRange);
 
 	const latest = Math.max(0, ...ok.map((r) => r.q.time || 0));
 	const failed = rows.length - ok.length;
