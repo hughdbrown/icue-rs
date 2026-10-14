@@ -5,6 +5,9 @@ embedded in EdgeHost. It gives widgets a new `window.plugins.<Name>` object, wit
 and signals they connect to, without rebuilding EdgeHost. Widgets ask for it by name in
 `required_plugins`, the same way iCUE widgets ask for iCUE's own plugins.
 
+This is the walkthrough. The precise contract (every key, function, limit and error) is in the
+[add-in API reference](addin-api.md).
+
 Use an add-in when a widget needs data the page cannot get by itself: for example, a source that
 needs polling shared logic, or an API you want behind a stable plugin interface. For a plain
 `fetch()` to a public API, a widget's own `url` permission is simpler (see the
@@ -96,8 +99,10 @@ fn fetch_price(pair) {
   outside themselves, so keep everything you need between calls in `this`. To call your own helper
   with `this` bound, use method syntax: `this.refresh(pair)`.
 - **`handle(method, args)`**: `args` is an array of the widget's arguments. The return value
-  resolves the widget's promise. It can be a number, string, bool, `()` (null), array or map. `throw "message"`
-  rejects the promise with that message.
+  resolves the widget's promise. It can be a number, string, bool, `()` (null), array or map.
+  `throw "message"` fails the call: the widget's promise resolves to `undefined` (plugin calls never
+  reject, as in iCUE) and the page logs `Facade.method: message`. To give the widget an error it can
+  act on, return it as data (`#{ error: "…" }`) or emit an error signal.
 - The entry point is `handle`, not `call` as in SPEC §7.1, because `call` is a reserved word in Rhai.
 
 ## 3. What a script can do
@@ -105,7 +110,7 @@ fn fetch_price(pair) {
 | Function | Does |
 |---|---|
 | `emit(signal)`, `emit(signal, [args…])` | Deliver a signal listed in `signals` to the widget, which receives `(args…)`. |
-| `http_get(url)` | GET an `http`/`https` URL on a host in `permissions.http`. It returns the body as a string. It throws on a refused host, a network error or a status ≥ 400. Timeout 10 s, body ≤ 1 MiB. |
+| `http_get(url)` | GET an `http`/`https` URL on a host in `permissions.http`. It returns the body as a string. It throws on a refused host, a network error, a status ≥ 400 or a redirect (redirects are not followed). Timeout 10 s, body ≤ 1 MiB. |
 | `parse_json(text)` | JSON text → Rhai value (maps, arrays, numbers, strings). |
 | `to_json(value)` | Rhai value → JSON text. |
 | `now_ms()` | Milliseconds since the Unix epoch. |
@@ -119,11 +124,11 @@ network access, and `import` and `eval` are disabled.
 
 | Limit | Value | When exceeded |
 |---|---|---|
-| Operations per entry point | 5,000,000 | The call fails; the script restarts with a fresh `this` and `init()` runs again. |
+| Operations per entry point (an empty `loop {}` reaches it in about 0.1 s) | 5,000,000 | The call fails; the script restarts with a fresh `this` and `init()` runs again. |
 | Script time per entry point (not counting time spent waiting in `http_get`) | 2 s | Same. |
 | Call depth / expression depth | 64 / 64 | Same. |
 | String size, array length, map size | 1 MiB, 10,000, 10,000 | Same. |
-| Widget call waiting for an answer | 30 s | The widget's promise rejects. |
+| Widget call waiting for an answer | 30 s | The call fails (resolves to `undefined`). |
 | `poll()` after failures | doubles each time, up to 60 s (or `poll_ms` if longer) | Back to `poll_ms` after a success. |
 | `main.rhai` size | 1 MiB | Not loaded. |
 
@@ -135,8 +140,8 @@ network access, and `import` and `eval` are disabled.
 - The script starts when the widget is shown, and `init()` runs again whenever the widget's page
   reloads. It stops when the widget's page goes away (changing page, reloading the layout, removing
   the widget).
-- Errors are logged with the add-in id. The widget sees just the message, for example
-  `bad pair "A/B"` or `http_get: HTTP 404 from https://…`.
+- Errors are logged with the add-in id and the full trace. The widget's console gets just the
+  message, for example `Coinprices.getPrice: bad pair "A/B"`.
 - Installing an add-in counts as approving the hosts it lists. There is no separate approval step or
   configurator page for add-ins yet (SPEC §7.3).
 
@@ -149,12 +154,12 @@ network access, and `import` and `eval` are disabled.
 ```js
 const prices = window.plugins.Coinprices;            // undefined if the add-in is not installed
 prices.priceChanged.connect((pair, price) => draw(pair, price));
-prices.watch("BTC-USD").catch((e) => show(e.message));
-const now = await prices.getPrice("ETH-USD");
+prices.watch("BTC-USD");
+const now = await prices.getPrice("ETH-USD");        // undefined if the call failed
 ```
 
 Exactly as with built-in plugins:
-- methods return promises;
+- methods return promises that resolve to the result, or to `undefined` on failure;
 - `plugin<Facade>_initialized` turns `true` once the plugin is ready;
 - `window.plugin<Facade>Events.onInitialized` is called at that point;
 - if the add-in is missing, the facade is absent and the flag stays `false`.
