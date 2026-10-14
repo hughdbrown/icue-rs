@@ -237,10 +237,9 @@ impl App {
             .find(|(_, i)| i.id == id)
             .map(|(_, i)| i.values.clone());
         if let (Some(widget), Some(values)) = (self.shown.iter().find(|w| w.id == instance), values)
+            && let Err(e) = surface.mount(widget, &values)
         {
-            if let Err(e) = surface.mount(widget, &values) {
-                eprintln!("showing {}: {e:#}", widget.def.manifest.id);
-            }
+            eprintln!("showing {}: {e:#}", widget.def.manifest.id);
         }
     }
 

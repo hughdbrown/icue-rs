@@ -105,7 +105,7 @@ impl Menus {
 fn icon() -> Result<Icon> {
     const SIZE: usize = 18;
     let mut rgba = vec![0_u8; SIZE * SIZE * 4];
-    for (i, px) in rgba.chunks_exact_mut(4).enumerate() {
+    for (i, px) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         let (x, y) = (i % SIZE, i / SIZE);
         let in_frame = (1..=16).contains(&x) && (5..=12).contains(&y);
         let in_hole = (3..=14).contains(&x) && (7..=10).contains(&y);

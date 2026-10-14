@@ -145,15 +145,14 @@ fn check_manifest(dir: &Path, text: &str, report: &mut Report) {
         }
         Some(_) => {}
     }
-    if let Some(id) = string("id").filter(|id| !id.is_empty()) {
-        if !id
+    if let Some(id) = string("id").filter(|id| !id.is_empty())
+        && !id
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
-        {
-            report.error(format!(
-                "manifest.json: \"id\" {id:?} may only contain letters, digits, '.' and '-'"
-            ));
-        }
+    {
+        report.error(format!(
+            "manifest.json: \"id\" {id:?} may only contain letters, digits, '.' and '-'"
+        ));
     }
     for key in ["version", "min_framework_version"] {
         if let Some(v) = string(key).filter(|v| !v.is_empty() && !is_version(v, 3..=3)) {

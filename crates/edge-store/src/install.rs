@@ -170,14 +170,12 @@ fn replace_dir(new: &Path, dest: &Path, tmp: &Path) -> Result<bool, InstallError
             .map_err(|e| io_err("moving the installed copy aside", dest, e))?;
     }
     if let Err(e) = fs::rename(new, dest) {
-        if replaced {
-            if let Err(restore) = fs::rename(&backup, dest) {
-                eprintln!(
-                    "could not restore {} from {}: {restore}",
-                    dest.display(),
-                    backup.display()
-                );
-            }
+        if replaced && let Err(restore) = fs::rename(&backup, dest) {
+            eprintln!(
+                "could not restore {} from {}: {restore}",
+                dest.display(),
+                backup.display()
+            );
         }
         return Err(io_err("moving the new copy into", dest, e));
     }

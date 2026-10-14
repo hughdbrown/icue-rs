@@ -42,7 +42,7 @@ pub fn parse_edid(bytes: &[u8]) -> Option<Edid> {
         .collect();
     let mut name = None;
     let mut preferred = None;
-    for (i, d) in base.get(54..126)?.chunks_exact(18).enumerate() {
+    for (i, d) in base.get(54..126)?.as_chunks::<18>().0.iter().enumerate() {
         let pixel_clock = u16::from_le_bytes([*d.first()?, *d.get(1)?]);
         if pixel_clock != 0 {
             if i == 0 {

@@ -359,10 +359,10 @@ impl Worker {
         if let Err(e) = self.engine.run_ast_with_scope(&mut self.scope, &self.ast) {
             self.log("top level", &e);
         }
-        if self.has_init {
-            if let Err(e) = self.invoke("init", ()) {
-                self.log("init()", &e);
-            }
+        if self.has_init
+            && let Err(e) = self.invoke("init", ())
+        {
+            self.log("init()", &e);
         }
     }
 

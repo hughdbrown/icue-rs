@@ -318,10 +318,10 @@ impl Surface {
         self.views.remove(&instance.id);
         let view = self.build_view(instance, &script, "/index.html", rect, Some(addins))?;
         view.zoom(self.fit.scale).context("setting widget zoom")?;
-        if self.opts.escape_closes {
-            if let Err(e) = view.focus() {
-                eprintln!("warning: could not focus the widget view: {e}");
-            }
+        if self.opts.escape_closes
+            && let Err(e) = view.focus()
+        {
+            eprintln!("warning: could not focus the widget view: {e}");
         }
         self.views.insert(instance.id, view);
         if self.pager.is_some() {

@@ -62,10 +62,10 @@ impl Translations {
     #[must_use]
     pub fn table(&self, lang: &str) -> BTreeMap<String, String> {
         let mut out = self.0.get("en").cloned().unwrap_or_default();
-        if lang != "en" {
-            if let Some(t) = self.0.get(lang) {
-                out.extend(t.iter().map(|(k, v)| (k.clone(), v.clone())));
-            }
+        if lang != "en"
+            && let Some(t) = self.0.get(lang)
+        {
+            out.extend(t.iter().map(|(k, v)| (k.clone(), v.clone())));
         }
         out
     }

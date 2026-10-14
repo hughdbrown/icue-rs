@@ -211,14 +211,14 @@ impl Addin {
         check_names("methods", &raw.methods)?;
         check_names("signals", &raw.signals)?;
         let poll = raw.poll_ms.map(Duration::from_millis);
-        if let Some(p) = poll {
-            if !(MIN_POLL..=MAX_POLL).contains(&p) {
-                return Err(AddinError::Invalid(format!(
-                    "poll_ms must be between {} and {}",
-                    MIN_POLL.as_millis(),
-                    MAX_POLL.as_millis()
-                )));
-            }
+        if let Some(p) = poll
+            && !(MIN_POLL..=MAX_POLL).contains(&p)
+        {
+            return Err(AddinError::Invalid(format!(
+                "poll_ms must be between {} and {}",
+                MIN_POLL.as_millis(),
+                MAX_POLL.as_millis()
+            )));
         }
         let http = raw
             .permissions
