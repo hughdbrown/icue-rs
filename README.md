@@ -51,15 +51,18 @@ cargo test --workspace
 cargo clippy --all-targets -- -D warnings
 node --test crates/widget-runtime/shim/
 node --test examples/widgets/portfolio/
+node --test examples/widgets/git/
 ```
 
 | Path | Contents |
 |---|---|
 | `crates/icuew-manifest` | Parse `manifest.json`, `<head>` controls and groups, `translation.json` |
 | `crates/edge-layout` | Edge grid, S/M/L/XL slots, display selection |
+| `crates/edge-plugins` | Plugins behind `window.plugins` (File System so far), path macros and grants |
 | `crates/widget-runtime` | Injection shim, `icuew://` asset server, Edge surface and web views |
 | `apps/edgectl` | Developer CLI |
 | `examples/widgets/hello-edge` | Test widget that displays the injected globals |
+| `examples/widgets/git` | Branch, upstream sync and recent activity of a local repo (File System plugin) |
 | `docs/` | Spec, review, and research notes (reverse-engineering findings, API reference) |
 
 Writing a widget? Start with [`docs/widget-developer-guide.md`](docs/widget-developer-guide.md).

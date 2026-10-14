@@ -8,10 +8,11 @@ implements, where it differs from iCUE, and how to build, run and debug a widget
 - Design and roadmap: [`SPEC.md`](SPEC.md)
 - Working examples: [`examples/widgets/hello-edge`](../examples/widgets/hello-edge) (every injected
   global, a tap counter) and [`examples/widgets/portfolio`](../examples/widgets/portfolio) (network
-  data, touch-friendly UI, in-widget editor, chart with scrubbing cursor)
+  data, touch-friendly UI, in-widget editor, chart with scrubbing cursor) and
+  [`examples/widgets/git`](../examples/widgets/git) (File System plugin, live updates)
 
-Status: EdgeHost milestone M2. Plugins (`window.plugins.*`) are not implemented yet; see
-[Plugins](#9-plugins).
+Status: EdgeHost milestone M2, plus the File System plugin from M3. Other plugins are not
+implemented yet; see [Plugins](#9-plugins).
 
 ---
 
@@ -106,7 +107,7 @@ that defines:
 | one global per `x-icue-property` | The property's concrete value (see §3) |
 | `tr(key)` | `Promise<string>` from `translation.json` (`en` fallback, then the key itself) |
 | `iCUE_initialized` | `false` until boot finishes, then `true` |
-| `window.plugins` | `{}` (see [Plugins](#9-plugins)) |
+| `window.plugins` | One object per provided plugin (see [Plugins](#9-plugins)) |
 | `plugin<Module>_initialized` | `false` for every entry in `required_plugins` |
 | `<ModuleFileStem>` | Each manifest `modules` entry's exports, e.g. `modules/CitySearch.mjs` → `CitySearch` |
 
@@ -280,19 +281,50 @@ Verified on a XENEON EDGE (macOS, 2026-10):
 
 ## 9. Plugins
 
-`window.plugins.*` providers are **not implemented yet**: sensors, media, links and the rest arrive
-in milestone M3. For every `required_plugins` entry, `plugin<Module>_initialized` is `false` and the
-facade is missing. Guard plugin use so your widget still renders:
+EdgeHost provides **`widgetbuilder.filesystemprovider:FileSystem:1.0`**. Other plugins are not
+implemented yet: for those, `plugin<Module>_initialized` stays `false` and the facade is missing.
+`edgectl validate` shows which of your `required_plugins` are provided. Guard plugin use so your
+widget still renders:
 
 ```js
-if (typeof pluginSensorsdataprovider_initialized !== "undefined" && pluginSensorsdataprovider_initialized) {
-  window.plugins.Sensorsdataprovider.getSensorValue(id, sensorId);
-}
+pluginFilesystemproviderEvents = { onInitialized: start }; // called when the plugin is ready
+if (typeof pluginFilesystemprovider_initialized !== "undefined" && pluginFilesystemprovider_initialized) start();
 ```
 
-Planned macOS support: links, file system, and basic sensors (CPU/GPU/memory load, best-effort
-temperatures) in v1; media in v1.5. Notifications, FPS, device actions and Stream Deck will report
-as unsupported. EdgeHost add-ins will be scriptable in [Rhai](https://rhai.rs).
+Plugin flags are set and `plugin<Module>Events.onInitialized` runs **before**
+`icueEvents.onICUEInitialized`. Methods return a Promise (iCUE's return nothing); calls from one page
+run in order. Signals have `connect(fn)` / `disconnect(fn)`.
+
+### File System
+
+Declare what you read, then watch it. `watchPath` takes `{Macro}` paths; permissions use `<Macro>`:
+
+```json
+"required_plugins": ["widgetbuilder.filesystemprovider:FileSystem:1.0"],
+"permissions": [{ "type": "folder", "path": "<Documents>/my-widget" }]
+```
+
+```js
+const fs = window.plugins.Filesystemprovider;
+fs.fileChanged.connect((path, content) => show(content));
+fs.watchPath("{Documents}/my-widget/status.txt");
+```
+
+| Behaviour | EdgeHost |
+|---|---|
+| Paths outside the declared `file` / `folder` permissions | Silently ignored (logged on the host) |
+| First report | `watchPath` sends the current state at once: `fileChanged` for a file, `fileAdded` per file in a folder |
+| Folders | Not recursive. Files directly inside also send `fileChanged` / `fileContentDiff` |
+| Missing file | Silent until it appears, then `fileChanged` |
+| Replaced by rename (e.g. git's `HEAD.lock` → `HEAD`) | Reported as a change |
+| Content | UTF-8 text only. Files over 1 MB send their last 1 MB from a line boundary |
+| Page reload | All watches are dropped; watch again on start |
+
+[`examples/widgets/git`](../examples/widgets/git) is a complete example.
+
+Planned macOS support: links and basic sensors (CPU/GPU/memory load, best-effort temperatures) in
+v1; media in v1.5. Notifications, FPS, device actions and Stream Deck will report as unsupported.
+EdgeHost add-ins will be scriptable in [Rhai](https://rhai.rs).
 
 ---
 
@@ -323,7 +355,7 @@ node --test examples/widgets/portfolio/
 | Engine | QtWebEngine 6.9 (Chromium 130) | WebKit (WKWebView). No WebHID/WebSerial/WebUSB, File System Access or `queryLocalFonts`. |
 | Defaults | Evaluated by iCUE | Evaluated once per version in a hidden view; pages get concrete values (§3) |
 | Settings UI | iCUE widget settings | `edgectl layout set` until the configurator (M4) |
-| Plugins | Available | Not yet (M3) |
+| Plugins | Available | File System only (others from M3) |
 | Cross-origin `fetch` | Widget origin rules | Declare `url` permissions to bypass CORS (§5) |
 | Touch | Touch events on the Edge | Mouse events (§8) |
 | `iCUE.ipRegistryApiKey` | Corsair's key | Absent |
