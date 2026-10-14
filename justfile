@@ -24,7 +24,7 @@ dist_dir := "dist"
 version := `grep -m1 '^version' Cargo.toml | cut -d'"' -f2`
 
 # Directories holding `node --test` suites (*.test.mjs).
-js_test_dirs := "crates/widget-runtime/shim apps/edgehost/ui examples/widgets/git examples/widgets/piano examples/widgets/portfolio examples/widgets/warthunder-hud"
+js_test_dirs := "crates/widget-runtime/shim apps/edgehost/ui examples/widgets/coin-ticker examples/widgets/git examples/widgets/piano examples/widgets/portfolio examples/widgets/warthunder-hud"
 
 # ── Development ────────────────────────────────────────────
 

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>tr('Coin Ticker')</title>
+		<link rel="icon" type="image/svg+xml" href="resources/icon.svg" />
+		<meta name="x-icue-property" content="pairs" data-label="tr('Pairs (comma separated)')" data-type="textfield" data-default="'BTC-USD, ETH-USD, SOL-USD'" />
+		<meta name="x-icue-property" content="textColor" data-label="tr('Text Color')" data-type="color" data-default="'#E8ECF2'" />
+		<meta name="x-icue-property" content="upColor" data-label="tr('Rising Color')" data-type="color" data-default="'#3FCF8E'" />
+		<meta name="x-icue-property" content="downColor" data-label="tr('Falling Color')" data-type="color" data-default="'#FF5C5C'" />
+		<meta name="x-icue-property" content="backgroundColor" data-label="tr('Background Color')" data-type="color" data-default="'#101318'" />
+		<script type="application/json" id="x-icue-groups">
+			[
+				{ "title": "tr('Prices')", "properties": ["pairs"], "info": "tr('Coinbase pairs such as BTC-USD or ETH-EUR, up to six. Prices refresh every 30 seconds.')" },
+				{ "title": "tr('Appearance')", "properties": ["textColor", "upColor", "downColor", "backgroundColor"] }
+			]
+		</script>
+		<link rel="stylesheet" href="styles/coin-ticker.css" />
+	</head>
+	<body>
+		<main>
+			<ul id="list"></ul>
+			<p id="message" hidden></p>
+		</main>
+		<script src="scripts/coin-ticker.js"></script>
+	</body>
+</html>

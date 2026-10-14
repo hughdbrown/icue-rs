@@ -1,0 +1,14 @@
+{
+	"author": "EdgeHost",
+	"id": "dev.edgehost.coin-ticker",
+	"name": "Coin Ticker",
+	"description": "Live cryptocurrency spot prices. Sample widget for EdgeHost's Rhai add-ins: needs the CoinPrices add-in (examples/addins/dev.edgehost.coin-prices).",
+	"version": "0.1.0",
+	"preview_icon": "resources/icon.svg",
+	"min_app_version": "5.47",
+	"min_framework_version": "1.0.0",
+	"os": [{ "platform": "windows" }, { "platform": "mac" }],
+	"supported_devices": [{ "type": "dashboard_lcd" }],
+	"interactive": false,
+	"required_plugins": ["edgehost.coinprices:CoinPrices:1.0"]
+}

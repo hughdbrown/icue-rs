@@ -1,0 +1,15 @@
+{
+	"en": {
+		"translation": {
+			"Coin Ticker": "Coin Ticker",
+			"Pairs (comma separated)": "Pairs (comma separated)",
+			"Text Color": "Text Color",
+			"Rising Color": "Rising Color",
+			"Falling Color": "Falling Color",
+			"Background Color": "Background Color",
+			"Prices": "Prices",
+			"Appearance": "Appearance",
+			"Coinbase pairs such as BTC-USD or ETH-EUR, up to six. Prices refresh every 30 seconds.": "Coinbase pairs such as BTC-USD or ETH-EUR, up to six. Prices refresh every 30 seconds."
+		}
+	}
+}
