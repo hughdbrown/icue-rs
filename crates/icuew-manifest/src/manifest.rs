@@ -180,6 +180,25 @@ pub struct UrlPermission {
     pub port: Option<u16>,
 }
 
+/// Kind of a declared path permission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PathPermissionKind {
+    /// Read access to one file.
+    File,
+    /// Read access to a folder, at any depth.
+    Folder,
+}
+
+/// A declared `file` or `folder` permission. `path` is as written, `<Macro>`s unexpanded.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PathPermission {
+    /// File or folder.
+    pub kind: PathPermissionKind,
+    /// Declared path, e.g. `<Documents>/my-widget/data.txt`.
+    pub path: String,
+}
+
 /// Parsed `manifest.json`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Manifest {
@@ -255,6 +274,26 @@ impl Manifest {
             .collect()
     }
 
+    /// The `{"type": "file" | "folder", "path": …}` permissions. Malformed entries are skipped.
+    #[must_use]
+    pub fn path_permissions(&self) -> Vec<PathPermission> {
+        self.permissions
+            .iter()
+            .filter_map(|p| {
+                let kind = match p.get("type")?.as_str()? {
+                    "file" => PathPermissionKind::File,
+                    "folder" => PathPermissionKind::Folder,
+                    _ => return None,
+                };
+                let path = p.get("path")?.as_str()?.trim();
+                (!path.is_empty()).then(|| PathPermission {
+                    kind,
+                    path: path.to_owned(),
+                })
+            })
+            .collect()
+    }
+
     /// Whether the widget declares support for the XENEON EDGE.
     #[must_use]
     pub fn supports_edge(&self) -> bool {
@@ -324,6 +363,31 @@ mod tests {
                 UrlPermission {
                     domain: "any".into(),
                     port: None
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn path_permissions_are_collected() {
+        let with = MINIMAL.replace(
+            r#""required_plugins""#,
+            r#""permissions": [{"type": "url", "domain": "a.example"},
+                              {"type": "file", "path": " <Documents>/x.txt "},
+                              {"type": "folder", "path": "<Home>/projects"},
+                              {"type": "folder"}, {"type": "file", "path": ""}], "required_plugins""#,
+        );
+        let m = Manifest::from_json(&with).unwrap();
+        assert_eq!(
+            m.path_permissions(),
+            vec![
+                PathPermission {
+                    kind: PathPermissionKind::File,
+                    path: "<Documents>/x.txt".into()
+                },
+                PathPermission {
+                    kind: PathPermissionKind::Folder,
+                    path: "<Home>/projects".into()
                 },
             ]
         );
