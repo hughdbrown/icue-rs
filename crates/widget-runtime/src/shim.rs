@@ -48,6 +48,8 @@ pub struct ShimConfig {
     pub temperature_unit: TemperatureUnit,
     /// Base URL the widget is served from, ending in `/` (e.g. `icuew://<host>/`).
     pub base_url: String,
+    /// Developer runs only: pressing Escape in the widget asks the host to close.
+    pub escape_closes: bool,
 }
 
 #[derive(Serialize)]
@@ -64,6 +66,7 @@ struct Payload<'a> {
     tr: BTreeMap<String, String>,
     modules: Vec<ModulePayload>,
     plugins: Vec<String>,
+    escape_closes: bool,
 }
 
 #[derive(Serialize)]
@@ -105,6 +108,7 @@ pub fn render(def: &WidgetDef, cfg: &ShimConfig) -> Result<String, serde_json::E
     let payload = Payload {
         lang: &cfg.language,
         fps_limit: cfg.fps_limit,
+        escape_closes: cfg.escape_closes,
         preview: cfg.is_preview,
         widget_id: cfg.instance_id.hyphenated().to_string(),
         instance_id: cfg.instance_id.hyphenated().to_string(),
@@ -160,6 +164,7 @@ mod tests {
             device_id: Uuid::from_u128(2),
             temperature_unit: TemperatureUnit::Celsius,
             base_url: "icuew://abc/".into(),
+            escape_closes: false,
         }
     }
 

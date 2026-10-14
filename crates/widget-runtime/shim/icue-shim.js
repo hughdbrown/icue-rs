@@ -44,6 +44,16 @@
 	window.addEventListener("unhandledrejection", (e) =>
 		post({ k: "console", level: "error", msg: `unhandled rejection: ${fmt(e.reason)}` }),
 	);
+	// Key events go to the web view, not the native window, so the dev-run Escape shortcut lives here.
+	if (P.escapeCloses) {
+		window.addEventListener(
+			"keydown",
+			(e) => {
+				if (e.key === "Escape") post({ k: "close" });
+			},
+			true,
+		);
+	}
 
 	const trTable = P.tr;
 	const trSync = (key) => (Object.prototype.hasOwnProperty.call(trTable, key) ? trTable[key] : String(key));

@@ -13,7 +13,7 @@ use edge_layout::{Cell, MonitorInfo, Orientation, Slot, find_edge, slot_rect};
 use icuew_manifest::WidgetDef;
 use tao::dpi::{LogicalPosition, LogicalSize};
 use tao::event::{ElementState, Event, WindowEvent};
-use tao::event_loop::{ControlFlow, EventLoop};
+use tao::event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy};
 use tao::keyboard::KeyCode;
 use tao::window::{Window, WindowBuilder};
 use uuid::Uuid;
@@ -50,6 +50,13 @@ pub struct RunOptions {
     pub common_dir: Option<PathBuf>,
 }
 
+/// Events the web views send to the run loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HostEvent {
+    /// The widget asked to close the run (Escape in `run-one`).
+    Close,
+}
+
 /// Where the surface is shown.
 enum Target {
     /// Borderless over an attached Edge.
@@ -74,22 +81,10 @@ pub fn run_one(opts: &RunOptions) -> Result<()> {
     if !(0.1..=2.0).contains(&opts.windowed_scale) {
         bail!("window scale {} is outside 0.1..=2.0", opts.windowed_scale);
     }
-    let root = opts
-        .widget_dir
-        .canonicalize()
-        .with_context(|| format!("opening widget directory {}", opts.widget_dir.display()))?;
-    let def =
-        WidgetDef::load(&root).with_context(|| format!("loading widget {}", root.display()))?;
-    if !def.manifest.supports_edge() {
-        eprintln!(
-            "warning: {} does not list dashboard_lcd (XENEON EDGE) in supported_devices",
-            def.manifest.id
-        );
-    }
-
+    let (root, def) = load_widget(&opts.widget_dir)?;
     let common = shared_common_dir(opts, &root);
 
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoopBuilder::<HostEvent>::with_user_event().build();
     let (orientation, target) = detect_target(&event_loop, opts);
     let (panel_w, panel_h) = orientation.panel_size();
     let slot_px = slot_rect(orientation, opts.slot, opts.origin)?;
@@ -125,6 +120,7 @@ pub fn run_one(opts: &RunOptions) -> Result<()> {
         device_id,
         temperature_unit: TemperatureUnit::Celsius,
         base_url: format!("{SCHEME}://{host}/"),
+        escape_closes: true,
     };
     let script = shim::render(&def, &cfg).context("rendering the injection shim")?;
     let label = def.manifest.id.to_string();
@@ -139,9 +135,15 @@ pub fn run_one(opts: &RunOptions) -> Result<()> {
             instance_id,
             label,
             devtools: opts.devtools,
+            proxy: event_loop.create_proxy(),
         },
     )?;
     widget.zoom(k).context("setting widget zoom")?;
+    // Take keyboard focus so Escape reaches the widget even when launched from a terminal.
+    window.set_focus();
+    if let Err(e) = widget.focus() {
+        eprintln!("warning: could not focus the widget view: {e}");
+    }
 
     eprintln!(
         "running {} at {} ({}×{} px) on {}",
@@ -160,20 +162,40 @@ pub fn run_one(opts: &RunOptions) -> Result<()> {
         *control_flow = ControlFlow::Wait;
         // The window and views live as long as the loop.
         let _keep_alive = (&window, &background, &widget);
-        if let Event::WindowEvent { event, .. } = event {
-            match event {
-                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-                WindowEvent::KeyboardInput { event, .. }
-                    if is_edge
-                        && event.physical_key == KeyCode::Escape
-                        && event.state == ElementState::Pressed =>
-                {
-                    *control_flow = ControlFlow::Exit;
-                }
-                _ => {}
+        match event {
+            Event::UserEvent(HostEvent::Close)
+            | Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => *control_flow = ControlFlow::Exit,
+            Event::WindowEvent {
+                event: WindowEvent::KeyboardInput { event, .. },
+                ..
+            } if is_edge
+                && event.physical_key == KeyCode::Escape
+                && event.state == ElementState::Pressed =>
+            {
+                *control_flow = ControlFlow::Exit;
             }
+            _ => {}
         }
     })
+}
+
+/// Canonicalise and parse a widget directory, warning if it does not target the Edge.
+fn load_widget(dir: &Path) -> Result<(PathBuf, WidgetDef)> {
+    let root = dir
+        .canonicalize()
+        .with_context(|| format!("opening widget directory {}", dir.display()))?;
+    let def =
+        WidgetDef::load(&root).with_context(|| format!("loading widget {}", root.display()))?;
+    if !def.manifest.supports_edge() {
+        eprintln!(
+            "warning: {} does not list dashboard_lcd (XENEON EDGE) in supported_devices",
+            def.manifest.id
+        );
+    }
+    Ok((root, def))
 }
 
 /// Everything needed to create one widget web view.
@@ -186,10 +208,11 @@ struct ViewSpec<'a> {
     instance_id: Uuid,
     label: String,
     devtools: bool,
+    proxy: EventLoopProxy<HostEvent>,
 }
 
 /// Pick the attached Edge, or fall back to a stand-in window in the requested orientation.
-fn detect_target(event_loop: &EventLoop<()>, opts: &RunOptions) -> (Orientation, Target) {
+fn detect_target(event_loop: &EventLoop<HostEvent>, opts: &RunOptions) -> (Orientation, Target) {
     let monitors: Vec<_> = event_loop.available_monitors().collect();
     let infos: Vec<MonitorInfo> = monitors
         .iter()
@@ -220,7 +243,7 @@ fn detect_target(event_loop: &EventLoop<()>, opts: &RunOptions) -> (Orientation,
 
 /// Borderless window covering the Edge, or a decorated window scaled by `k`.
 fn build_window(
-    event_loop: &EventLoop<()>,
+    event_loop: &EventLoop<HostEvent>,
     target: &Target,
     orientation: Orientation,
     k: f64,
@@ -257,6 +280,7 @@ fn build_widget_view(window: &Window, spec: ViewSpec<'_>) -> Result<WebView> {
         instance_id,
         label,
         devtools,
+        proxy,
     } = spec;
     let serve_root = root.to_path_buf();
     let serve_common = common.map(Path::to_path_buf);
@@ -268,7 +292,12 @@ fn build_widget_view(window: &Window, spec: ViewSpec<'_>) -> Result<WebView> {
         .with_custom_protocol(SCHEME.to_owned(), move |_id, request| {
             serve(&serve_root, serve_common.as_deref(), request.uri().path())
         })
-        .with_ipc_handler(move |request| report(&label, request.body()))
+        .with_ipc_handler(move |request| {
+            if report(&label, request.body()) == Some(HostEvent::Close) {
+                // The loop only stops being able to receive events when it is exiting anyway.
+                let _ = proxy.send_event(HostEvent::Close);
+            }
+        })
         .with_url(url);
     #[cfg(target_os = "macos")]
     let builder = {
@@ -338,11 +367,11 @@ fn serve(root: &Path, common: Option<&Path>, url_path: &str) -> Response<Cow<'st
     })
 }
 
-/// Print a message posted by the shim (`{k, level?, msg?}`) to stderr.
-fn report(label: &str, body: &str) {
+/// Print a message posted by the shim (`{k, level?, msg?}`) and return any request for the loop.
+fn report(label: &str, body: &str) -> Option<HostEvent> {
     let Ok(message) = serde_json::from_str::<serde_json::Value>(body) else {
         eprintln!("[{label}] unparseable message: {body}");
-        return;
+        return None;
     };
     let field = |name: &str| {
         message
@@ -353,6 +382,8 @@ fn report(label: &str, body: &str) {
     match field("k") {
         "console" => eprintln!("[{label}] {}: {}", field("level"), field("msg")),
         "booted" => eprintln!("[{label}] booted"),
+        "close" => return Some(HostEvent::Close),
         other => eprintln!("[{label}] {other}: {body}"),
     }
+    None
 }

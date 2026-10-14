@@ -16,7 +16,7 @@ function run(payload, widgetScript = "") {
 	const context = {
 		console: { log() {}, info() {}, warn() {}, error() {} },
 		document: { readyState: "loading", addEventListener: (t, f) => (listeners[t] = f) },
-		addEventListener() {},
+		addEventListener: (t, f) => (listeners[`window:${t}`] = f),
 		ipc: { postMessage: (m) => posted.push(JSON.parse(m)) },
 	};
 	context.window = context;
@@ -94,4 +94,13 @@ test("console output is forwarded to the host", () => {
 	const { context, posted } = run(BASE);
 	context.console.error("boom", { a: 1 });
 	assert.ok(posted.some((m) => m.k === "console" && m.level === "error" && m.msg === 'boom {"a":1}'));
+});
+
+test("Escape asks the host to close only when enabled", () => {
+	const off = run(BASE);
+	assert.equal(off.listeners["window:keydown"], undefined);
+	const on = run({ ...BASE, escapeCloses: true });
+	on.listeners["window:keydown"]({ key: "a" });
+	on.listeners["window:keydown"]({ key: "Escape" });
+	assert.deepEqual(plain(on.posted.filter((m) => m.k === "close")), [{ k: "close" }]);
 });
