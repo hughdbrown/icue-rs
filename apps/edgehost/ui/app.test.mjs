@@ -62,6 +62,11 @@ function fixtureState() {
 	};
 }
 
+// ---------------------------------------------------------------- confirm dialog
+
+const dialog = (env) => env.find(env.body, (n) => n.getAttribute("role") === "dialog");
+const dialogButton = (env, action) => env.find(dialog(env), (n) => n.getAttribute("data-action") === action);
+
 // ---------------------------------------------------------------- fake DOM
 
 function makeEnv() {
@@ -163,13 +168,14 @@ function makeEnv() {
 		console, document, Promise, JSON, Math, Number, Object, String, Array, Set, Map, Error,
 		setTimeout: (fn, ms) => { const id = nextTimer++; timers.set(id, { at: now + ms, fn }); return id; },
 		clearTimeout: (id) => timers.delete(id),
-		confirm: () => env.confirmAnswer,
+		// WKWebView without a confirm handler (wry has none) answers every confirm() with Cancel.
+		confirm: () => false,
 	};
 	context.window = context;
 	context.globalThis = context;
 
 	const env = {
-		context, document, body, state: fixtureState(), calls: [], failNext: null, confirmAnswer: true,
+		context, document, body, state: fixtureState(), calls: [], failNext: null,
 		boardRect: { left: 0, top: 0, width: 900, height: 300 },
 		el: (id) => byId.get(id),
 		all: (root = body) => all(root),
@@ -405,13 +411,18 @@ test("resize buttons send layout.move with the same origin; delete confirms", as
 	await env.settle();
 	assert.deepEqual(env.mutationCalls()[0], { method: "layout.move", params: { instance: "i3", page: 0, origin: { col: 2, row: 0 }, slot: "M" } });
 
-	env.confirmAnswer = false;
 	find((n) => env.cls(n, "delete-btn")).fire("click");
 	await env.settle();
+	assert.match(env.text(dialog(env)), /Remove "Styler"/);
+	dialogButton(env, "cancel").fire("click");
+	await env.settle();
+	assert.equal(dialog(env), undefined, "cancel closes the dialog");
 	assert.equal(env.mutationCalls().length, 1);
-	env.confirmAnswer = true;
 	find((n) => env.cls(n, "delete-btn")).fire("click");
 	await env.settle();
+	dialogButton(env, "confirm").fire("click");
+	await env.settle();
+	assert.equal(dialog(env), undefined);
 	assert.deepEqual(env.mutationCalls()[1], { method: "layout.remove", params: { instance: "i3" } });
 	assert.match(env.text(env.el("settings")), /Select a tile/);
 });
@@ -472,6 +483,18 @@ test("arrow keys move the selected tile; Delete removes after confirm", async ()
 	await env.settle();
 	assert.equal(env.mutationCalls().length, 1);
 	board().fire("keydown", { key: "Delete" });
+	await env.settle();
+	assert.equal(env.mutationCalls().length, 1, "nothing removed before confirming");
+	assert.match(env.text(dialog(env)), /Remove "Clock"/);
+	board().fire("keydown", { key: "Delete" }); // a second press does not stack another dialog
+	assert.equal(env.findAll(env.body, (n) => n.getAttribute("role") === "dialog").length, 1);
+	dialog(env).fire("keydown", { key: "Escape" });
+	await env.settle();
+	assert.equal(dialog(env), undefined, "Escape cancels");
+	assert.equal(env.mutationCalls().length, 1);
+	board().fire("keydown", { key: "Backspace" });
+	await env.settle();
+	dialogButton(env, "confirm").fire("click");
 	await env.settle();
 	assert.deepEqual(env.mutationCalls()[1], { method: "layout.remove", params: { instance: "i1" } });
 });

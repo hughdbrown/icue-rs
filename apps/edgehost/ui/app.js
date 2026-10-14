@@ -185,6 +185,45 @@
 		toast(e && e.message ? e.message : String(e), "error");
 	}
 
+	// ---------------------------------------------------------------- confirm dialog
+
+	// An in-page replacement for window.confirm(): WKWebView answers confirm() with Cancel unless
+	// the host implements a UI-delegate method, which wry does not, so confirm() always returned
+	// false and nothing could be deleted. Resolves true for the confirm button, false for Cancel,
+	// Escape or a click outside. While one is open, another request resolves false at once.
+	let confirmOpen = false;
+	function confirmInPage(message, confirmLabel) {
+		if (confirmOpen) return Promise.resolve(false);
+		confirmOpen = true;
+		const opener = document.activeElement;
+		return new Promise((resolve) => {
+			const done = (answer) => {
+				confirmOpen = false;
+				backdrop.remove();
+				if (opener && opener.focus) opener.focus();
+				resolve(answer);
+			};
+			const ok = h("button", { class: "danger", "data-action": "confirm", onclick: () => done(true) }, confirmLabel);
+			const cancel = h("button", { "data-action": "cancel", onclick: () => done(false) }, "Cancel");
+			const box = h("div", { class: "confirm-box" }, h("p", {}, message), h("div", { class: "confirm-actions" }, cancel, ok));
+			const backdrop = h("div", {
+				class: "confirm-backdrop",
+				role: "dialog",
+				"aria-modal": "true",
+				"aria-label": message,
+				onkeydown: (e) => {
+					if (e.key === "Escape") {
+						if (e.preventDefault) e.preventDefault();
+						done(false);
+					}
+				},
+				onclick: (e) => { if (e.target === backdrop) done(false); },
+			}, box);
+			document.body.append(backdrop);
+			ok.focus();
+		});
+	}
+
 	// ---------------------------------------------------------------- data flow
 
 	async function refresh() {
@@ -259,8 +298,8 @@
 		return mutate("layout.move", { instance: inst.id, page, origin: { col: origin.col, row: origin.row }, slot });
 	}
 
-	function removeInstance(inst) {
-		if (!root.confirm(`Remove "${widgetName(inst)}" from the layout?`)) return Promise.resolve(null);
+	async function removeInstance(inst) {
+		if (!(await confirmInPage(`Remove "${widgetName(inst)}" from the layout?`, "Remove"))) return null;
 		return mutate("layout.remove", { instance: inst.id });
 	}
 

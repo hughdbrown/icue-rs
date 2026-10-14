@@ -255,6 +255,27 @@ h3 { font-size: 13px; margin: 14px 0 6px; }
 .toast[hidden] { display: none; }
 .toast.error { background: var(--err-bg); color: var(--err-text); border-color: var(--bad); }
 
+/* in-page confirm dialog (window.confirm does not work in WKWebView) */
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 60;
+}
+.confirm-box {
+  max-width: min(420px, 90vw);
+  padding: 16px 18px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+}
+.confirm-box p { margin: 0 0 14px; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 200px minmax(0, 1fr) 240px; gap: 8px; padding: 8px; }
   .w-desc { font-size: 12px; }
