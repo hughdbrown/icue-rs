@@ -100,7 +100,7 @@ that defines:
 | `iCUE.fpsLimit` | `30` (advisory; not enforced) |
 | `iCUE.isPreview` | `false` |
 | `iCUE.defaultTemperatureUnit()` | `"°C"` |
-| `iCUE.widgetId` | Currently the manifest `id`; may become per-instance, see [Open questions](#12-open-questions). Do not use it as a storage key. |
+| `iCUE.widgetId` | Per-instance UUID (same value as `uniqueId`) |
 | `device.deviceId` | Stable UUID (no braces) for the display the widget is on |
 | `uniqueId` | **Per-instance** UUID. Use this as your `localStorage` key. |
 | one global per `x-icue-property` | The property's concrete value (see §3) |
@@ -331,8 +331,5 @@ node --test examples/widgets/portfolio/
 
 ## 12. Open questions
 
-- **`iCUE.widgetId`**: EdgeHost currently injects the manifest `id`. Corsair's Stream Deck docs pass
-  it as a per-session widget identifier, which suggests it should be per-instance. Until this is
-  settled, use `uniqueId` for anything per-instance.
 - Whether property changes should re-run `onDataUpdated` without reloading the page (iCUE does; EdgeHost
   currently reloads). Write `onDataUpdated` so it also works when called at boot only.

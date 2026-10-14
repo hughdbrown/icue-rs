@@ -144,7 +144,9 @@ pub fn render(
         fps_limit: cfg.fps_limit,
         escape_closes: cfg.escape_closes,
         preview: cfg.is_preview,
-        widget_id: def.manifest.id.to_string(),
+        // Per instance, like uniqueId: Stream Deck sessions are keyed by it, so two copies of a
+        // widget must differ.
+        widget_id: cfg.instance_id.hyphenated().to_string(),
         instance_id: cfg.instance_id.hyphenated().to_string(),
         device_id: cfg.device_id.hyphenated().to_string(),
         temp_unit: cfg.temperature_unit.symbol(),
@@ -221,7 +223,7 @@ mod tests {
             !js.contains("Greeting.defaultHeadline()"),
             "runtime pages carry no expressions"
         );
-        assert!(js.contains(r#""widgetId":"dev.edgehost.hello-edge""#));
+        assert!(js.contains(r#""widgetId":"00000000-0000-0000-0000-000000000001""#));
         assert!(js.contains(r#""instanceId":"00000000-0000-0000-0000-000000000001""#));
         assert!(js.contains(r#""url":"icuew://abc/modules/Greeting.mjs","global":"Greeting""#));
         assert!(js.contains(r#""name":"textColor""#));
