@@ -70,6 +70,7 @@ async function onInitialized() {
 		state.taps += 1;
 		saveState(state);
 		showFacts(state);
+		console.log("tap", state.taps);
 	});
 	console.log("hello-edge initialized", `${window.innerWidth}x${window.innerHeight}`, JSON.stringify({ headline, textColor, fontScale, showSeconds, opens: state.opens, lang: iCUE.iCUELanguage }));
 }
