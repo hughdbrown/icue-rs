@@ -292,48 +292,69 @@ function renderPeriods() {
 	);
 }
 
+// "Nice" value-axis ticks: a step of 1, 2, 2.5 or 5 × 10^k giving about `count` intervals.
+function niceTicks(min, max, count) {
+	const span = max - min || Math.abs(max) * 0.01 || 1;
+	const raw = span / count;
+	const magnitude = 10 ** Math.floor(Math.log10(raw));
+	const step = [1, 2, 2.5, 5, 10].map((m) => m * magnitude).find((m) => m >= raw) || 10 * magnitude;
+	const lo = Math.floor(min / step) * step;
+	const hi = Math.max(Math.ceil(max / step) * step, lo + step);
+	const ticks = [];
+	for (let v = lo; v <= hi + step / 2; v += step) ticks.push(Number(v.toFixed(10)));
+	return { lo, hi, step, ticks };
+}
+
+const axisUsd = (step) =>
+	new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: step < 1 ? 2 : 0, minimumFractionDigits: step < 1 ? 2 : 0 });
+
+// The last drawn chart, for the scrubbing cursor.
+let chart = null;
+
 function renderChart(series, trend, range) {
 	const line = $("line");
 	const area = $("area");
 	const baseline = $("baseline");
 	const grid = $("grid");
+	const hgrid = $("hgrid");
 	const timeline = $("timeline");
+	const yaxis = $("yaxis");
 	document.documentElement.style.setProperty("--trend", trend < 0 ? "var(--down)" : "var(--up)");
+	hideCursor();
 	if (series.length < 2) {
+		chart = null;
 		line.setAttribute("points", "");
 		area.setAttribute("d", "");
-		grid.replaceChildren();
-		timeline.replaceChildren();
+		for (const el of [grid, hgrid, timeline, yaxis]) el.replaceChildren();
 		return;
 	}
 	const gmtoffset = (Object.values(quotes).find((q) => !q.error) || {}).gmtoffset ?? -5 * 3600;
 	const scale = xScale(series, range, gmtoffset);
 	const values = series.map((p) => p.v);
-	const min = Math.min(...values);
-	const max = Math.max(...values);
-	const span = max - min || 1;
-	const y = (v) => 290 - ((v - min) / span) * 280;
-	const pts = series.map((p, i) => `${scale.x(p, i).toFixed(1)},${y(p.v).toFixed(1)}`);
-	const lastX = scale.x(series[series.length - 1], series.length - 1).toFixed(1);
-	const firstX = scale.x(series[0], 0).toFixed(1);
+	const plotHeight = $("plot").clientHeight || 300;
+	const axis = niceTicks(Math.min(...values), Math.max(...values), Math.max(2, Math.min(5, Math.floor(plotHeight / 55))));
+	const y = (v) => 296 - ((v - axis.lo) / (axis.hi - axis.lo)) * 292;
+	const xs = series.map((p, i) => scale.x(p, i));
+	const pts = series.map((p, i) => `${xs[i].toFixed(1)},${y(p.v).toFixed(1)}`);
 	line.setAttribute("points", pts.join(" "));
-	area.setAttribute("d", `M${firstX},300 L${pts.join(" L")} L${lastX},300 Z`);
+	area.setAttribute("d", `M${xs[0].toFixed(1)},300 L${pts.join(" L")} L${xs[xs.length - 1].toFixed(1)},300 Z`);
 	const by = y(series[0].v).toFixed(1);
 	baseline.setAttribute("y1", by);
 	baseline.setAttribute("y2", by);
+	chart = { series, xs, ys: series.map((p) => y(p.v)), range, base: series[0].v };
 
-	const ticks = timelineTicks(series, scale, range, timeline.clientWidth || 600);
 	const svgNs = "http://www.w3.org/2000/svg";
-	grid.replaceChildren(
-		...ticks.map((tick) => {
-			const l = document.createElementNS(svgNs, "line");
-			l.setAttribute("x1", tick.x.toFixed(1));
-			l.setAttribute("x2", tick.x.toFixed(1));
-			l.setAttribute("y1", "0");
-			l.setAttribute("y2", "300");
-			return l;
-		}),
-	);
+	const svgLine = (x1, y1, x2, y2) => {
+		const l = document.createElementNS(svgNs, "line");
+		l.setAttribute("x1", x1);
+		l.setAttribute("y1", y1);
+		l.setAttribute("x2", x2);
+		l.setAttribute("y2", y2);
+		return l;
+	};
+	const ticks = timelineTicks(series, scale, range, timeline.clientWidth || 600);
+	grid.replaceChildren(...ticks.map((tick) => svgLine(tick.x.toFixed(1), 0, tick.x.toFixed(1), 300)));
+	hgrid.replaceChildren(...axis.ticks.map((v) => svgLine(0, y(v).toFixed(1), 1000, y(v).toFixed(1))));
 	timeline.replaceChildren(
 		...ticks.map((tick) => {
 			const span = document.createElement("span");
@@ -344,6 +365,94 @@ function renderChart(series, trend, range) {
 			return span;
 		}),
 	);
+	const fmt = axisUsd(axis.step);
+	yaxis.replaceChildren(
+		...axis.ticks.map((v) => {
+			const span = document.createElement("span");
+			span.textContent = fmt.format(v);
+			span.style.top = `${(y(v) / 300) * 100}%`;
+			return span;
+		}),
+	);
+}
+
+// ---------- scrubbing cursor ----------
+
+const TIP_INTRADAY = etFormat({ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const TIP_DAILY = etFormat({ weekday: "short", month: "short", day: "numeric", year: "numeric" });
+let hideTimer = null;
+let dragging = false;
+
+function hideCursor() {
+	clearTimeout(hideTimer);
+	$("cursor").hidden = true;
+}
+
+function showCursorAt(clientX) {
+	if (!chart) return;
+	const plot = $("plot");
+	const box = plot.getBoundingClientRect();
+	if (box.width <= 0) return;
+	const target = ((clientX - box.left) / box.width) * 1000;
+	let best = 0;
+	chart.xs.forEach((x, i) => {
+		if (Math.abs(x - target) < Math.abs(chart.xs[best] - target)) best = i;
+	});
+	const point = chart.series[best];
+	const last = chart.series.length - 1;
+	const px = (chart.xs[best] / 1000) * box.width;
+	const py = (chart.ys[best] / 300) * box.height;
+	const intraday = chart.range === "1d" || chart.range === "5d";
+	let when;
+	if (best === 0) when = chart.range === "1d" ? "Previous close" : "Start of period";
+	else when = (intraday ? `${TIP_INTRADAY.format(at(point.t))} ET` : TIP_DAILY.format(at(point.t))) + (best === last ? " · now" : "");
+	const delta = point.v - chart.base;
+
+	const cursor = $("cursor");
+	cursor.hidden = false;
+	cursor.querySelector(".cursor-line").style.left = `${px}px`;
+	const dot = cursor.querySelector(".cursor-dot");
+	dot.style.left = `${px}px`;
+	dot.style.top = `${py}px`;
+	const tip = cursor.querySelector(".cursor-tip");
+	tip.querySelector(".tip-time").textContent = when;
+	tip.querySelector(".tip-value").textContent = usd.format(point.v);
+	const change = tip.querySelector(".tip-change");
+	change.textContent = best === 0 ? "baseline" : `${signedUsd(delta)} (${signedPct(chart.base ? delta / chart.base : NaN)})`;
+	change.className = `tip-change ${best === 0 ? "flat" : trendClass(delta)}`;
+	const flip = px > box.width * 0.6;
+	tip.style.left = flip ? "" : `${px + 12}px`;
+	tip.style.right = flip ? `${box.width - px + 12}px` : "";
+}
+
+function wireCursor() {
+	const plot = $("plot");
+	plot.addEventListener("pointerdown", (e) => {
+		dragging = true;
+		try {
+			plot.setPointerCapture(e.pointerId);
+		} catch (_) {
+			// Capture is best-effort; the drag still works inside the plot.
+		}
+		clearTimeout(hideTimer);
+		showCursorAt(e.clientX);
+	});
+	plot.addEventListener("pointermove", (e) => {
+		if (dragging || e.pointerType === "mouse") {
+			clearTimeout(hideTimer);
+			showCursorAt(e.clientX);
+		}
+	});
+	const release = () => {
+		dragging = false;
+		clearTimeout(hideTimer);
+		hideTimer = setTimeout(hideCursor, 3000);
+	};
+	plot.addEventListener("pointerup", release);
+	plot.addEventListener("pointercancel", release);
+	plot.addEventListener("pointerleave", () => {
+		if (!dragging) release();
+	});
 }
 
 function cell(text, className) {
@@ -491,6 +600,7 @@ function init() {
 	state = seededState();
 	save();
 	wireEditor();
+	wireCursor();
 	renderPeriods();
 	render();
 	refresh();

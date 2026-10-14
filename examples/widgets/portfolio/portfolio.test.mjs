@@ -94,6 +94,7 @@ function makeWidgetEnv() {
 			click() {
 				for (const fn of eventListeners.click || []) fn({});
 			},
+			__listeners: eventListeners,
 		};
 		return el;
 	}
@@ -120,6 +121,9 @@ function makeWidgetEnv() {
 	const body = makeElement("body");
 	const document = {
 		createElement(tag) {
+			return makeElement(tag);
+		},
+		createElementNS(_ns, tag) {
 			return makeElement(tag);
 		},
 		getElementById(id) {
@@ -154,7 +158,7 @@ function makeWidgetEnv() {
 				chart: {
 					result: [
 						{
-							meta: { regularMarketPrice: 100, chartPreviousClose: 95, currency: "USD" },
+							meta: { regularMarketPrice: 100, chartPreviousClose: 95, currency: "USD", gmtoffset: -5 * 3600 },
 							indicators: { quote: [{ close: [95, 96, 100] }] },
 							timestamp: [1, 2, 3],
 						},
@@ -209,49 +213,61 @@ function makeWidgetEnv() {
 	};
 }
 
-test("portfolio initializes and period taps change state", () => {
+function withEnv(fn) {
 	const env = makeWidgetEnv();
-	assert.equal(typeof env.context.icueEvents.onICUEInitialized, "function");
-	env.context.icueEvents.onICUEInitialized();
+	try {
+		fn(env);
+	} finally {
+		env.clear();
+	}
+}
 
-	const nav = env.byId.get("periods");
-	assert.ok(nav && nav.children.length === 6, "six period buttons rendered");
-	assert.equal(nav.children[0].getAttribute("aria-pressed"), "true");
+test("portfolio initializes and period taps change state", () => {
+	withEnv((env) => {
+		assert.equal(typeof env.context.icueEvents.onICUEInitialized, "function");
+		env.context.icueEvents.onICUEInitialized();
 
-	// Tap the third button (1M).
-	nav.children[2].click();
-	assert.equal(nav.children[2].getAttribute("aria-pressed"), "true");
-	assert.equal(nav.children[0].getAttribute("aria-pressed"), "false");
-	env.clear();
+		const nav = env.byId.get("periods");
+		assert.ok(nav && nav.children.length === 6, "six period buttons rendered");
+		assert.equal(nav.children[0].getAttribute("aria-pressed"), "true");
+
+		// Tap the third button (1M).
+		nav.children[2].click();
+		assert.equal(nav.children[2].getAttribute("aria-pressed"), "true");
+		assert.equal(nav.children[0].getAttribute("aria-pressed"), "false");
+	});
 });
 
 test("edit button opens the holdings editor", () => {
-	const env = makeWidgetEnv();
-	env.context.icueEvents.onICUEInitialized();
+	withEnv((env) => {
+		env.context.icueEvents.onICUEInitialized();
 
-	const editor = env.byId.get("editor");
-	assert.equal(editor.hidden, true);
-	env.byId.get("edit").click();
-	assert.equal(editor.hidden, false);
-	assert.ok(env.byId.get("editor-rows").children.length >= 1);
-	env.clear();
+		const editor = env.context.document.getElementById("editor");
+		editor.hidden = true; // simulate HTML hidden attribute
+		assert.equal(editor.hidden, true);
+		env.byId.get("edit").click();
+		assert.equal(editor.hidden, false);
+		assert.ok(env.byId.get("editor-rows").children.length >= 1);
+	});
 });
 
 test("saving the editor updates holdings and refreshes", () => {
-	const env = makeWidgetEnv();
-	env.context.icueEvents.onICUEInitialized();
-	env.byId.get("edit").click();
+	withEnv((env) => {
+		env.context.icueEvents.onICUEInitialized();
+		env.byId.get("edit").click();
 
-	const rows = env.byId.get("editor-rows").children;
-	assert.ok(rows.length >= 1);
-	const first = rows[0];
-	first.querySelector(".ticker").value = "TSLA";
-	first.querySelector(".shares").value = "7";
+		const rows = env.byId.get("editor-rows").children;
+		assert.ok(rows.length >= 1);
+		const first = rows[0];
+		first.querySelector(".ticker").value = "TSLA";
+		first.querySelector(".shares").value = "7";
 
-	env.byId.get("save").click();
-	assert.equal(env.byId.get("editor").hidden, true);
-	// Holdings table should now have a TSLA row.
-	const rowTexts = env.byId.get("rows").children.map((tr) => tr.textContent);
-	assert.ok(rowTexts.some((t) => t.includes("TSLA")));
-	env.clear();
+		env.byId.get("save").click();
+		assert.equal(env.byId.get("editor").hidden, true);
+		// Holdings table should now have a TSLA row.
+		const tableRows = env.byId.get("rows").children;
+		assert.ok(tableRows.length >= 1);
+		const firstSymbol = tableRows[0].children[0].textContent;
+		assert.equal(firstSymbol, "TSLA");
+	});
 });

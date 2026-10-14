@@ -149,14 +149,87 @@ button.primary {
 
 #chart-box {
 	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
 	grid-template-rows: minmax(0, 1fr) auto;
-	gap: 4px;
+	gap: 4px 8px;
+}
+#yaxis {
+	position: relative;
+	min-width: 64px;
+	font-size: 12px;
+	color: var(--muted);
+	font-variant-numeric: tabular-nums;
+}
+#yaxis span {
+	position: absolute;
+	right: 0;
+	transform: translateY(-50%);
+	white-space: nowrap;
+}
+#plot {
+	position: relative;
+	min-height: 0;
+	touch-action: none;
+	cursor: crosshair;
 }
 #chart {
 	width: 100%;
 	height: 100%;
 	min-height: 0;
 	display: block;
+}
+#hgrid line {
+	stroke: var(--line);
+	stroke-width: 1;
+	vector-effect: non-scaling-stroke;
+}
+#cursor {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+#cursor[hidden] {
+	display: none;
+}
+.cursor-line {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 0;
+	border-left: 1px solid var(--fg);
+	opacity: 0.6;
+}
+.cursor-dot {
+	position: absolute;
+	width: 12px;
+	height: 12px;
+	margin: -6px 0 0 -6px;
+	border-radius: 50%;
+	background: var(--trend);
+	border: 2px solid var(--bg);
+	box-shadow: 0 0 0 1px var(--fg);
+}
+.cursor-tip {
+	position: absolute;
+	top: 4px;
+	padding: 6px 10px;
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--bg) 88%, var(--fg));
+	border: 1px solid var(--line);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	box-shadow: 0 4px 16px rgb(0 0 0 / 0.35);
+}
+.tip-time {
+	font-size: 13px;
+	color: var(--muted);
+}
+.tip-value {
+	font-size: 20px;
+	font-weight: 650;
+}
+.tip-change {
+	font-size: 14px;
 }
 #grid line {
 	stroke: var(--line);
