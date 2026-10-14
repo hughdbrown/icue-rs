@@ -161,8 +161,8 @@ widget page goes away ──► provider dropped ──► thread ends after its
   races on `this`.
 - From a single page, calls are also **serialized in call order**: the shim chains them, so
   `clear()` then `add(x)` cannot be reordered.
-- A slow `http_get` blocks that instance's other calls and polls until it finishes, for up to 10 s
-  per request.
+- A slow `http_get` blocks that instance's other calls and polls until it finishes: up to 10 s per
+  request, and 20 s for the whole entry point.
 - **Poll schedule.** The next poll runs `poll_ms` after the previous one *finished*. After `n`
   failures in a row the wait is `poll_ms × 2ⁿ`, capped at `max(60 s, poll_ms)`. A success resets it.
 
@@ -171,11 +171,13 @@ widget page goes away ──► provider dropped ──► thread ends after its
 | Limit | Value | On violation |
 |---|---|---|
 | Operations per entry point | 5,000,000 | `Too many operations`; the script restarts (§7). |
-| Script time per entry point, excluding `http_get` waits | 2 s | Fails with Rhai's termination error; restart. |
+| Script time per entry point, excluding `http_get` waits | 2 s | `script time budget exceeded`; restart. |
+| Total time per entry point, including `http_get` waits | 20 s | `time limit for this call reached` (from the running `http_get`, which gets only the time left, or from the script); restart. |
 | Function call depth | 64 | Fails with a stack-overflow error; restart. |
 | Expression depth | 64 (32 inside functions) | Compile error at load. |
 | String length / array length / map size | 1 MiB / 10,000 / 10,000 | `Length of string too large` (and the array and map equivalents); restart. |
-| Wait for a `handle` answer | 30 s | `add-in <id> did not answer in time` |
+| Wait for a `handle` answer | 30 s | `add-in <id> did not answer in time`. A call still queued at that point is skipped, not run late (logged `skipped <method>(): its caller stopped waiting`). |
+| Calls waiting for the script | 16 per widget instance | Further calls fail at once: `add-in <id> is busy (16 calls waiting); try again later`. |
 | `main.rhai` size | 1 MiB | Not loaded. |
 | Signals queued for a page | 1,000 per widget instance | Oldest dropped. |
 

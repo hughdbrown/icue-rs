@@ -70,6 +70,8 @@ gotchas: [PATTERNS.md](PATTERNS.md). Worked example: `examples/addins/dev.edgeho
 - Functions cannot read top-level variables. Use `this`, and call helpers as `this.helper(…)`.
 - A widget's call **never rejects**. A failure resolves to `undefined` and logs a warning.
 - `init()` runs at start and again on page load (usually twice), always with `this = #{}`.
+- Each entry point gets 2 s of script time and 20 s in total, `http_get` waits included. Keep
+  network calls few per entry point.
 - 5,000,000 operations per entry point, enough for only about 1–2 million loop iterations. Do heavy
   work in chunks across polls.
 - `http_get` covers only `permissions.http` hosts and subdomains on the default port, or the

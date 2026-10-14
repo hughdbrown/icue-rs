@@ -19,14 +19,16 @@
 //! | `print(…)`, `debug(…)` | Write to EdgeHost's log |
 //!
 //! There is no module loading, no `eval`, and no file, process or raw network access. Each entry
-//! point runs under [`MAX_OPERATIONS`], [`CALL_BUDGET`] of script time (time inside `http_get` is
-//! not counted) and size limits. A script that exceeds a limit gets a fresh `this` and `init()`
-//! runs again; a failing `poll()` backs off up to [`MAX_BACKOFF`].
+//! point runs under [`MAX_OPERATIONS`], size limits and the [`Limits`]: 2 s of script time (time
+//! inside `http_get` is not counted) and 20 s in total (it is). A script that exceeds a limit gets
+//! a fresh `this` and `init()` runs again; a failing `poll()` backs off up to [`MAX_BACKOFF`].
+//! At most 16 widget calls wait for the script; more fail at once as busy, and a call whose caller
+//! stopped waiting (30 s) is skipped rather than run late.
 
 use std::cell::Cell;
 use std::collections::BTreeSet;
 use std::rc::Rc;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -38,12 +40,33 @@ use crate::{Emitter, PluginError, Provider};
 
 /// Operations one entry point may run.
 pub const MAX_OPERATIONS: u64 = 5_000_000;
-/// Script time one entry point may use.
-pub const CALL_BUDGET: Duration = Duration::from_secs(2);
 /// Longest wait between polls after repeated failures.
 pub const MAX_BACKOFF: Duration = Duration::from_secs(60);
-/// How long a widget call waits for the script (including its `http_get`s).
-const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Time and queue limits of a running add-in ([`Limits::default`] in EdgeHost).
+#[derive(Debug, Clone, Copy)]
+pub struct Limits {
+    /// Script time one entry point may use, not counting `http_get` waits.
+    pub script_time: Duration,
+    /// Total time one entry point may take, `http_get` waits included. Each `http_get` is given
+    /// at most the time that is left.
+    pub wall_time: Duration,
+    /// How long a widget call waits for its answer. A call still queued after this is skipped.
+    pub reply_timeout: Duration,
+    /// Calls waiting for the script; more fail at once with "busy".
+    pub queue: usize,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            script_time: Duration::from_secs(2),
+            wall_time: Duration::from_secs(20),
+            reply_timeout: Duration::from_secs(30),
+            queue: 16,
+        }
+    }
+}
 /// Timeout of one `http_get`.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 /// Largest `http_get` body.
@@ -84,6 +107,8 @@ enum Request {
         method: String,
         args: Vec<Value>,
         reply: SyncSender<Result<Value, PluginError>>,
+        /// The caller stops waiting at this moment; the call is skipped if it has not started.
+        expires: Instant,
     },
     Reset,
 }
@@ -91,7 +116,8 @@ enum Request {
 /// An add-in running for one widget instance. Dropping it stops the script's thread.
 pub struct RhaiProvider {
     addin: Arc<Addin>,
-    tx: Sender<Request>,
+    tx: SyncSender<Request>,
+    limits: Limits,
 }
 
 impl RhaiProvider {
@@ -101,13 +127,26 @@ impl RhaiProvider {
     ///
     /// [`PluginError::Failed`] if the thread cannot be started.
     pub fn start(addin: Arc<Addin>, emit: Emitter) -> Result<Self, PluginError> {
-        let (tx, rx) = mpsc::channel();
+        Self::start_with(addin, emit, Limits::default())
+    }
+
+    /// [`RhaiProvider::start`] with other limits.
+    ///
+    /// # Errors
+    ///
+    /// [`PluginError::Failed`] if the thread cannot be started.
+    pub fn start_with(
+        addin: Arc<Addin>,
+        emit: Emitter,
+        limits: Limits,
+    ) -> Result<Self, PluginError> {
+        let (tx, rx) = mpsc::sync_channel(limits.queue);
         let worker_addin = Arc::clone(&addin);
         std::thread::Builder::new()
             .name(format!("addin {}", addin.id))
-            .spawn(move || run(&worker_addin, &emit, &rx))
+            .spawn(move || run(&worker_addin, &emit, &rx, limits))
             .map_err(|e| PluginError::Failed(format!("starting add-in {}: {e}", addin.id)))?;
-        Ok(Self { addin, tx })
+        Ok(Self { addin, tx, limits })
     }
 }
 
@@ -118,30 +157,40 @@ impl Provider for RhaiProvider {
         }
         let stopped = || PluginError::Failed(format!("add-in {} has stopped", self.addin.id));
         let (reply, answer) = mpsc::sync_channel(1);
-        self.tx
-            .send(Request::Call {
-                method: method.to_owned(),
-                args: args.to_vec(),
-                reply,
-            })
-            .map_err(|_| stopped())?;
-        answer.recv_timeout(REPLY_TIMEOUT).map_err(|e| match e {
-            RecvTimeoutError::Timeout => {
-                PluginError::Failed(format!("add-in {} did not answer in time", self.addin.id))
-            }
-            RecvTimeoutError::Disconnected => stopped(),
-        })?
+        let request = Request::Call {
+            method: method.to_owned(),
+            args: args.to_vec(),
+            reply,
+            expires: Instant::now() + self.limits.reply_timeout,
+        };
+        self.tx.try_send(request).map_err(|e| match e {
+            TrySendError::Full(_) => PluginError::Failed(format!(
+                "add-in {} is busy ({} calls waiting); try again later",
+                self.addin.id, self.limits.queue
+            )),
+            TrySendError::Disconnected(_) => stopped(),
+        })?;
+        answer
+            .recv_timeout(self.limits.reply_timeout)
+            .map_err(|e| match e {
+                RecvTimeoutError::Timeout => {
+                    PluginError::Failed(format!("add-in {} did not answer in time", self.addin.id))
+                }
+                RecvTimeoutError::Disconnected => stopped(),
+            })?
     }
 
     fn reset(&self) {
-        // Fails only if the thread is gone, which `call` reports.
+        // Waits for room if calls fill the queue (the page's reset request has its own thread,
+        // and the script skips calls whose callers gave up). Fails only if the thread is gone,
+        // which `call` reports.
         let _ = self.tx.send(Request::Reset);
     }
 }
 
 /// The script thread: answer requests and run `poll()` on schedule until the provider is dropped.
-fn run(addin: &Arc<Addin>, emit: &Emitter, rx: &Receiver<Request>) {
-    let mut worker = match Worker::new(Arc::clone(addin), emit) {
+fn run(addin: &Arc<Addin>, emit: &Emitter, rx: &Receiver<Request>, limits: Limits) {
+    let mut worker = match Worker::new(Arc::clone(addin), emit, limits) {
         Ok(w) => w,
         Err(e) => {
             eprintln!("[addin {}] {e}", addin.id);
@@ -167,7 +216,16 @@ fn run(addin: &Arc<Addin>, emit: &Emitter, rx: &Receiver<Request>) {
                 method,
                 args,
                 reply,
+                expires,
             }) => {
+                if Instant::now() >= expires {
+                    // The caller already gave up; running it now would only delay the next one.
+                    eprintln!(
+                        "[addin {}] skipped {method}(): its caller stopped waiting",
+                        addin.id
+                    );
+                    continue;
+                }
                 let _ = reply.send(worker.call(&method, &args));
             }
             Ok(Request::Reset) => {
@@ -192,33 +250,67 @@ fn backoff(interval: Duration, failures: u32) -> Duration {
     grown.min(MAX_BACKOFF.max(interval))
 }
 
+/// When the running entry point must stop: `script` moves later while `http_get` waits, `wall`
+/// does not.
+struct Budget {
+    script: Cell<Instant>,
+    wall: Cell<Instant>,
+}
+
+impl Budget {
+    fn start(&self, limits: &Limits) {
+        let now = Instant::now();
+        self.script.set(now + limits.script_time);
+        self.wall.set(now + limits.wall_time);
+    }
+
+    fn exceeded(&self) -> Option<&'static str> {
+        let now = Instant::now();
+        if now > self.wall.get() {
+            Some("time limit for this call reached")
+        } else if now > self.script.get() {
+            Some("script time budget exceeded")
+        } else {
+            None
+        }
+    }
+}
+
 struct Worker {
     addin: Arc<Addin>,
     engine: Engine,
     ast: AST,
     scope: Scope<'static>,
     this: Dynamic,
-    deadline: Rc<Cell<Instant>>,
+    budget: Rc<Budget>,
+    limits: Limits,
     has_init: bool,
 }
 
 impl Worker {
-    fn new(addin: Arc<Addin>, emit: &Emitter) -> Result<Self, String> {
-        let deadline = Rc::new(Cell::new(Instant::now() + CALL_BUDGET));
+    fn new(addin: Arc<Addin>, emit: &Emitter, limits: Limits) -> Result<Self, String> {
+        let budget = Rc::new(Budget {
+            script: Cell::new(Instant::now()),
+            wall: Cell::new(Instant::now()),
+        });
+        budget.start(&limits);
         let mut engine = sandbox_engine();
         let label = addin.id.clone();
         engine.on_print(move |s| eprintln!("[addin {label}] {s}"));
         let label = addin.id.clone();
         engine.on_debug(move |s, _, pos| eprintln!("[addin {label}] debug {pos}: {s}"));
         {
-            let deadline = Rc::clone(&deadline);
+            let budget = Rc::clone(&budget);
             engine.on_progress(move |ops| {
-                (ops % 256 == 0 && Instant::now() > deadline.get())
-                    .then(|| Dynamic::from("script time budget exceeded"))
+                if ops % 256 == 0 {
+                    budget.exceeded().map(Dynamic::from)
+                } else {
+                    None
+                }
             });
         }
         register_emit(&mut engine, &addin, emit);
-        register_http(&mut engine, &addin.http, &deadline);
+        register_http(&mut engine, &addin.http, &budget);
         engine.register_fn(
             "parse_json",
             |text: &str| -> Result<Dynamic, Box<EvalAltResult>> {
@@ -249,7 +341,8 @@ impl Worker {
             ast,
             scope: Scope::new(),
             this: Dynamic::from_map(Map::new()),
-            deadline,
+            budget,
+            limits,
             has_init,
         })
     }
@@ -262,7 +355,7 @@ impl Worker {
     fn restart(&mut self) {
         self.this = Dynamic::from_map(Map::new());
         self.scope = Scope::new();
-        self.deadline.set(Instant::now() + CALL_BUDGET);
+        self.budget.start(&self.limits);
         if let Err(e) = self.engine.run_ast_with_scope(&mut self.scope, &self.ast) {
             self.log("top level", &e);
         }
@@ -274,7 +367,7 @@ impl Worker {
     }
 
     fn invoke(&mut self, name: &str, args: impl FuncArgs) -> Result<Dynamic, Box<EvalAltResult>> {
-        self.deadline.set(Instant::now() + CALL_BUDGET);
+        self.budget.start(&self.limits);
         let options = CallFnOptions::new()
             .eval_ast(false)
             .rewind_scope(true)
@@ -380,23 +473,34 @@ fn register_emit(engine: &mut Engine, addin: &Arc<Addin>, emit: &Emitter) {
     engine.register_fn("emit", move |signal: &str| send(signal, Array::new()));
 }
 
-fn register_http(engine: &mut Engine, grants: &[HttpGrant], deadline: &Rc<Cell<Instant>>) {
+fn register_http(engine: &mut Engine, grants: &[HttpGrant], budget: &Rc<Budget>) {
     let grants = grants.to_vec();
-    let deadline = Rc::clone(deadline);
+    let budget = Rc::clone(budget);
     engine.register_fn(
         "http_get",
         move |url: &str| -> Result<String, Box<EvalAltResult>> {
             let started = Instant::now();
-            let result = http_get(&grants, url);
-            // Waiting for the network does not count against the script's time budget.
-            deadline.set(deadline.get() + started.elapsed());
-            result.map_err(|e| format!("http_get: {e}").into())
+            let left = budget.wall.get().saturating_duration_since(started);
+            if left.is_zero() {
+                return Err("http_get: time limit for this call reached".into());
+            }
+            let result = http_get(&grants, url, left.min(HTTP_TIMEOUT));
+            // Waiting for the network does not count against the script-time budget; it does
+            // count against the wall-time limit, which stays put.
+            budget.script.set(budget.script.get() + started.elapsed());
+            result.map_err(|e| {
+                if Instant::now() >= budget.wall.get() {
+                    "http_get: time limit for this call reached".into()
+                } else {
+                    format!("http_get: {e}").into()
+                }
+            })
         },
     );
 }
 
-/// GET `url` if a grant covers it.
-fn http_get(grants: &[HttpGrant], url: &str) -> Result<String, String> {
+/// GET `url` if a grant covers it, giving up after `timeout`.
+fn http_get(grants: &[HttpGrant], url: &str, timeout: Duration) -> Result<String, String> {
     let lower = url.to_ascii_lowercase();
     let default_port = if lower.starts_with("https://") {
         443
@@ -420,6 +524,9 @@ fn http_get(grants: &[HttpGrant], url: &str) -> Result<String, String> {
     // machine; any other name that resolves here is refused at connection time.
     let mut response = agent(crate::net::is_loopback_host(&host))
         .get(url)
+        .config()
+        .timeout_global(Some(timeout))
+        .build()
         .call()
         .map_err(|e| e.to_string())?;
     let status = response.status().as_u16();
@@ -482,6 +589,10 @@ mod tests {
     type Signals = Arc<Mutex<Vec<(String, Vec<Value>)>>>;
 
     fn provider(toml_extra: &str, script: &str) -> (RhaiProvider, Signals) {
+        provider_with(toml_extra, script, Limits::default())
+    }
+
+    fn provider_with(toml_extra: &str, script: &str, limits: Limits) -> (RhaiProvider, Signals) {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("dev.test.t");
         std::fs::create_dir_all(&dir).unwrap();
@@ -497,7 +608,10 @@ mod tests {
         let emit: Emitter = Arc::new(move |s: &str, a: Vec<Value>| {
             sink.lock().unwrap().push((s.to_owned(), a));
         });
-        (RhaiProvider::start(addin, emit).unwrap(), signals)
+        (
+            RhaiProvider::start_with(addin, emit, limits).unwrap(),
+            signals,
+        )
     }
 
     const COUNTER: &str = r#"
@@ -600,17 +714,31 @@ mod tests {
             }]
         };
         assert_eq!(
-            http_get(&grant(ok), &format!("http://127.0.0.1:{ok}/x")),
+            http_get(
+                &grant(ok),
+                &format!("http://127.0.0.1:{ok}/x"),
+                HTTP_TIMEOUT
+            ),
             Ok("hello".into())
         );
         let moved = stub_server(
             "HTTP/1.1 302 Found\r\nLocation: http://evil.example/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
         );
-        let err = http_get(&grant(moved), &format!("http://127.0.0.1:{moved}/")).unwrap_err();
+        let err = http_get(
+            &grant(moved),
+            &format!("http://127.0.0.1:{moved}/"),
+            HTTP_TIMEOUT,
+        )
+        .unwrap_err();
         assert!(err.contains("redirects to http://evil.example/"), "{err}");
         let missing =
             stub_server("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-        let err = http_get(&grant(missing), &format!("http://127.0.0.1:{missing}/")).unwrap_err();
+        let err = http_get(
+            &grant(missing),
+            &format!("http://127.0.0.1:{missing}/"),
+            HTTP_TIMEOUT,
+        )
+        .unwrap_err();
         assert!(err.starts_with("HTTP 404"), "{err}");
     }
 
@@ -622,8 +750,112 @@ mod tests {
             host: "0.0.0.0".into(),
             port: Some(port),
         }];
-        let err = http_get(&grant, &format!("http://0.0.0.0:{port}/")).unwrap_err();
+        let err = http_get(&grant, &format!("http://0.0.0.0:{port}/"), HTTP_TIMEOUT).unwrap_err();
         assert!(err.contains("resolves to this machine"), "{err}");
+    }
+
+    /// Like [`stub_server`], but each answer takes `delay`.
+    fn slow_server(delay: Duration) -> u16 {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().take(64) {
+                let mut s = stream.unwrap();
+                std::thread::spawn(move || {
+                    let _ = s.read(&mut [0_u8; 2048]);
+                    std::thread::sleep(delay);
+                    let _ = s.write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+                    );
+                });
+            }
+        });
+        port
+    }
+
+    const SLOW_SCRIPT: &str = r#"
+        fn handle(method, args) {
+            switch method {
+                "fetch" => http_get(args[0]),
+                "spin" => { loop { http_get(args[0]); } }
+                "get" => { emit("changed", [1]); 1 }
+            }
+        }
+    "#;
+
+    #[test]
+    fn wall_time_caps_an_entry_point_including_http_waits() {
+        let port = slow_server(Duration::from_millis(150));
+        let limits = Limits {
+            wall_time: Duration::from_millis(400),
+            ..Limits::default()
+        };
+        let grant = format!("[permissions]\nhttp = [\"127.0.0.1:{port}\"]");
+        let (p, _) = provider_with(&grant, SLOW_SCRIPT, limits);
+        let url = Value::from(format!("http://127.0.0.1:{port}/"));
+        assert_eq!(
+            p.call("fetch", std::slice::from_ref(&url)),
+            Ok(Value::from("ok"))
+        );
+        let started = Instant::now();
+        let err = p.call("spin", &[url]).unwrap_err();
+        assert!(
+            err.to_string().contains("time limit for this call reached"),
+            "{err}"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_full_queue_fails_fast_and_stale_calls_are_skipped() {
+        let port = slow_server(Duration::from_millis(800));
+        let limits = Limits {
+            queue: 1,
+            reply_timeout: Duration::from_millis(300),
+            ..Limits::default()
+        };
+        let grant = format!("[permissions]\nhttp = [\"127.0.0.1:{port}\"]");
+        let (p, signals) = provider_with(&grant, SLOW_SCRIPT, limits);
+        let p = Arc::new(p);
+        let url = Value::from(format!("http://127.0.0.1:{port}/"));
+        // Occupies the script for 800 ms; its caller gives up after 300 ms.
+        let busy = {
+            let p = Arc::clone(&p);
+            std::thread::spawn(move || p.call("fetch", &[url]))
+        };
+        std::thread::sleep(Duration::from_millis(50));
+        // Waits in the queue and expires there.
+        let queued = {
+            let p = Arc::clone(&p);
+            std::thread::spawn(move || p.call("get", &[]))
+        };
+        std::thread::sleep(Duration::from_millis(50));
+        let started = Instant::now();
+        let err = p.call("get", &[]).unwrap_err();
+        assert!(err.to_string().contains("busy"), "{err}");
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "busy must fail at once"
+        );
+        for t in [busy, queued] {
+            let err = t.join().unwrap().unwrap_err();
+            assert!(err.to_string().contains("did not answer in time"), "{err}");
+        }
+        std::thread::sleep(Duration::from_millis(900));
+        assert!(
+            signals.lock().unwrap().is_empty(),
+            "the expired call never ran"
+        );
+        assert_eq!(
+            p.call("get", &[]),
+            Ok(Value::from(1)),
+            "the add-in still works"
+        );
     }
 
     #[test]

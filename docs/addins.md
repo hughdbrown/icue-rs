@@ -126,9 +126,11 @@ network access, and `import` and `eval` are disabled.
 |---|---|---|
 | Operations per entry point (an empty `loop {}` reaches it in about 0.1 s) | 5,000,000 | The call fails; the script restarts with a fresh `this` and `init()` runs again. |
 | Script time per entry point (not counting time spent waiting in `http_get`) | 2 s | Same. |
+| Total time per entry point (counting `http_get` waits) | 20 s | Same. |
+| Calls waiting for the script | 16 | Further calls fail at once ("busy"). |
 | Call depth / expression depth | 64 / 64 | Same. |
 | String size, array length, map size | 1 MiB, 10,000, 10,000 | Same. |
-| Widget call waiting for an answer | 30 s | The call fails (resolves to `undefined`). |
+| Widget call waiting for an answer | 30 s | The call fails (resolves to `undefined`); if it had not started, it is skipped. |
 | `poll()` after failures | doubles each time, up to 60 s (or `poll_ms` if longer) | Back to `poll_ms` after a success. |
 | `main.rhai` size | 1 MiB | Not loaded. |
 
