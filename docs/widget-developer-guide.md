@@ -215,7 +215,8 @@ call `fetch(url)` normally.
 | This Mac | Reachable only through a declared `localhost` / `127.0.0.1` / `::1` host with a port. A URL whose host merely resolves here (`0.0.0.0`, numeric forms, a DNS name pointing at 127.0.0.1) fails, even under `"any"`. LAN addresses are unaffected. |
 | Redirects | Followed up to 5 hops, and **each hop must also match your permissions**. A redirect to an undeclared host fails with status 403 and a message naming both URLs. Declare every host a redirect chain passes through. |
 | Response | Status, `Content-Type` and body pass through. `response.url` is the internal proxy URL. |
-| Undeclared domains | Not routed (normal browser behaviour). From milestone M3 the user approves declared permissions. |
+| Undeclared domains | Not routed (normal browser behaviour). |
+| Approval | `edgectl install` lists every declared permission (network, files, folders) and asks the user before installing; scripts pass `--yes`. Declare only what the widget needs. |
 
 Request headers you set (for example API keys in headers) are **not** forwarded yet. Put keys in the
 query string, or ask for header support.

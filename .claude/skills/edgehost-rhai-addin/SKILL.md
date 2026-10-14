@@ -57,12 +57,13 @@ gotchas: [PATTERNS.md](PATTERNS.md). Worked example: `examples/addins/dev.edgeho
    EdgeHost:
    ```bash
    export EDGEHOST_HOME=$(mktemp -d)
-   ./target/debug/edgectl addin install examples/addins/<id>
+   ./target/debug/edgectl addin install examples/addins/<id> --yes   # scratch store only
    ./target/debug/edgectl run-one examples/widgets/<widget> --windowed --slot M
    ```
    A `print(...)` in the script shows up as `[addin <id>]` in the output.
 7. **Finish:** run `just ci`, and commit the add-in and the widget as separate commits. Install into
-   the user's real store (`edgectl addin install …` with no `EDGEHOST_HOME`) only if they ask.
+   the user's real store (`edgectl addin install …` with no `EDGEHOST_HOME`) only if they ask. Installing
+   approves the add-in's hosts: show the user what it declares, and pass `--yes` only once they agree.
 
 ## Rules that bite
 

@@ -234,8 +234,9 @@ signal, as the sample does with `priceError`.
 - **Redirects are not followed.** A 3xx response fails with
   `HTTP 302 from <url> redirects to <location>; redirects are not followed, …`, so a granted host
   cannot send the script to an undeclared one. Request the final URL instead.
-- **Approval** is the act of installing. `edgectl addin install` and `check` print the hosts. There
-  is no per-host prompt yet (SPEC §7.3).
+- **Approval** happens at install. `edgectl addin install` lists the hosts and asks; without a
+  terminal it refuses unless `--yes` is given. There is no stored approval state, per-host prompt or
+  revocation yet (SPEC §7.3, §8.1); removing the add-in revokes everything.
 - Each widget instance's script is isolated from other instances. Widget pages cannot reach
   add-ins they do not require.
 
@@ -255,7 +256,7 @@ origin (`icuew://<instance>/`) and answer JSON.
 | Command | Does |
 |---|---|
 | `check <dir>` | Load and compile; print module, facade, methods, signals, poll and hosts. Exits non-zero on error. |
-| `install <dir>` | Validate, then copy to `addins/<id>/`, replacing a copy with the same id. Refuses built-in plugins and a second provider of the same plugin. |
+| `install <dir> [--yes]` | Validate, show the hosts it may reach and ask for approval (`--yes` approves; with no terminal, `--yes` is required), then copy to `addins/<id>/`, replacing a copy with the same id. Refuses built-in plugins and a second provider of the same plugin. |
 | `list` | Installed add-ins, and unusable folders with the reason. |
 | `remove <id>` | Delete `addins/<id>/`. |
 | `run <dir \| id> [--call M] [--args JSON] [--seconds N]` | Start the script outside EdgeHost: top level and `init`, optionally one call (prints `M → value`; on failure prints the error and exits non-zero), then print signals with timestamps for `N` s (default 0 with `--call`, else 10). Polls run on schedule. |

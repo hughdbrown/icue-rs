@@ -19,10 +19,14 @@ pub enum AddinCommand {
         /// Folder holding addin.toml and main.rhai.
         dir: PathBuf,
     },
-    /// Install an add-in folder, replacing an installed copy with the same id.
+    /// Install an add-in folder after approving the hosts it may reach, replacing an installed
+    /// copy with the same id.
     Install {
         /// Folder holding addin.toml and main.rhai.
         dir: PathBuf,
+        /// Approve the add-in's declared hosts without asking.
+        #[arg(long)]
+        yes: bool,
     },
     /// List installed add-ins, and any that cannot be used.
     List,
@@ -55,7 +59,7 @@ pub fn run(store: &dyn Fn() -> Result<Store>, command: &AddinCommand) -> Result<
             println!("ok");
             Ok(())
         }
-        AddinCommand::Install { dir } => install(&store()?, dir),
+        AddinCommand::Install { dir, yes } => install(&store()?, dir, *yes),
         AddinCommand::List => {
             list(&store()?);
             Ok(())
@@ -105,7 +109,10 @@ fn list_or_none(items: &[String]) -> String {
     }
 }
 
-fn install(store: &Store, dir: &Path) -> Result<()> {
+fn install(store: &Store, dir: &Path, yes: bool) -> Result<()> {
+    if let Ok(addin) = Addin::load(dir) {
+        crate::approve::confirm(&addin.id, &crate::approve::addin_permissions(&addin), yes)?;
+    }
     match edge_store::install_addin(store, dir) {
         Ok(out) => {
             describe(&out.addin);

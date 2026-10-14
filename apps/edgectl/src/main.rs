@@ -1,6 +1,7 @@
 //! `edgectl`: EdgeHost developer and administration CLI.
 
 mod addin;
+mod approve;
 
 use std::path::{Path, PathBuf};
 
@@ -35,10 +36,13 @@ enum Command {
         /// Widget folder or package.
         path: PathBuf,
     },
-    /// Install a widget folder or .icuewidget/.zip package.
+    /// Install a widget folder or .icuewidget/.zip package, after approving what it may access.
     Install {
         /// Widget folder or package.
         path: PathBuf,
+        /// Approve the widget's declared permissions without asking.
+        #[arg(long)]
+        yes: bool,
     },
     /// List installed widgets.
     List,
@@ -168,7 +172,7 @@ fn main() -> Result<()> {
     };
     match cli.command {
         Command::Validate { ref path } => validate(path, &addins(store().ok().as_ref())),
-        Command::Install { ref path } => install(&store()?, path),
+        Command::Install { ref path, yes } => install(&store()?, path, yes),
         Command::List => list(&store()?),
         Command::Uninstall {
             ref id,
@@ -303,7 +307,31 @@ fn print_report(report: &Report) {
     }
 }
 
-fn install(store: &Store, path: &Path) -> Result<()> {
+/// The validated widget in `path` (folder or package), if it validates; `install` reports errors.
+fn peek_widget(path: &Path) -> Option<WidgetDef> {
+    let staging = tempfile::tempdir().ok()?;
+    let root = if path.is_dir() {
+        path.to_path_buf()
+    } else {
+        edge_store::unpack(path, staging.path()).ok()?
+    };
+    let report = validate_dir(&root);
+    if report.has_errors() {
+        None
+    } else {
+        report.widget
+    }
+}
+
+fn install(store: &Store, path: &Path, yes: bool) -> Result<()> {
+    if let Some(def) = peek_widget(path) {
+        let m = &def.manifest;
+        approve::confirm(
+            &format!("{} {}", m.id, m.version),
+            &approve::widget_permissions(&m.permissions),
+            yes,
+        )?;
+    }
     match edge_store::install(store, path) {
         Ok(out) => {
             print_report(&out.report);

@@ -431,7 +431,8 @@ pub trait Provider: Send + Sync {
 - **Third-party add-ins are Rhai scripts (v0.2, owner decision).** *Implemented 2026-10-14; see
   [`addins.md`](addins.md) for what shipped. Differences from this text: the call entry point is
   `fn handle(method, args)` (`call` is reserved in Rhai); each widget instance gets its own engine
-  (no fan-out yet); installing an add-in approves its `http` hosts; properties, snapshots,
+  (no fan-out yet); installing an add-in approves its `http` hosts after `edgectl` shows them and asks (widgets
+  likewise: an install-time confirmation, without stored states, runtime prompts or revocation yet); properties, snapshots,
   `read_file` and block methods are not implemented.* An add-in is a folder
   `~/Library/Application Support/EdgeHost/addins/<id>/` holding `addin.toml` (provider descriptor:
   module, name, version, methods, signals, properties, block methods, required capabilities) and

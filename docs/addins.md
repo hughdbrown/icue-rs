@@ -144,8 +144,8 @@ network access, and `import` and `eval` are disabled.
   the widget).
 - Errors are logged with the add-in id and the full trace. The widget's console gets just the
   message, for example `Coinprices.getPrice: bad pair "A/B"`.
-- Installing an add-in counts as approving the hosts it lists. There is no separate approval step or
-  configurator page for add-ins yet (SPEC §7.3).
+- `edgectl addin install` lists the hosts the add-in may reach and asks you to approve them
+  (`--yes` in scripts). There is no configurator page for add-ins yet (SPEC §7.3).
 
 ## 5. Using an add-in from a widget
 

@@ -111,7 +111,8 @@ and signals it connects to. The data folder is `~/Library/Application Support/Ed
    `edgectl addin check dev.you.weather`, then
    `edgectl addin run dev.you.weather --seconds 5` (prints signals) or
    `edgectl addin run dev.you.weather --call current`.
-3. **Install it:** `edgectl addin install dev.you.weather`. Use `edgectl addin list` to confirm, and
+3. **Install it:** `edgectl addin install dev.you.weather`. It lists the hosts the add-in may reach
+   and asks you to approve them (`--yes` approves without asking, for scripts). Use `edgectl addin list` to confirm, and
    `edgectl addin remove dev.you.weather` to uninstall.
 4. **Use it from a widget:** add `"required_plugins": ["dev.weather:Weather:1.0"]` to the widget's
    `manifest.json`, then in its script:
@@ -140,7 +141,8 @@ A complete example is the [`coin-prices`](examples/addins/dev.edgehost.coin-pric
 1. Make a folder with `manifest.json` and `index.html` (start from
    [`examples/widgets/hello-edge`](examples/widgets/hello-edge)).
 2. `edgectl validate <folder>`, then `edgectl run-one <folder> --windowed` to see it.
-3. `edgectl install <folder>` and `edgectl layout add <widget id> --slot M` (or **Configure Widgets…**).
+3. `edgectl install <folder>` (it shows what the widget may access and asks before granting it;
+   `--yes` for scripts), then `edgectl layout add <widget id> --slot M` (or **Configure Widgets…**).
 
 See [`docs/widget-developer-guide.md`](docs/widget-developer-guide.md).
 
