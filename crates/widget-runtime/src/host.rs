@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use edge_layout::{Cell, MonitorInfo, Orientation, Slot, find_edge, slot_rect};
 use icuew_manifest::WidgetDef;
-use tao::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
+use tao::dpi::{LogicalPosition, LogicalSize};
 use tao::event::{ElementState, Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoop};
 use tao::keyboard::KeyCode;
@@ -54,7 +54,8 @@ pub struct RunOptions {
 enum Target {
     /// Borderless over an attached Edge.
     Edge {
-        position: PhysicalPosition<i32>,
+        /// Top-left of the Edge in global logical (point) coordinates.
+        position: LogicalPosition<f64>,
         scale_factor: f64,
         name: String,
     },
@@ -206,7 +207,9 @@ fn detect_target(event_loop: &EventLoop<()>, opts: &RunOptions) -> (Orientation,
         Some((m, o)) => (
             o,
             Target::Edge {
-                position: m.position(),
+                // Convert with the Edge's own scale factor: tao would otherwise convert a physical
+                // position using the main display's factor and place the window on the wrong screen.
+                position: m.position().to_logical(m.scale_factor()),
                 scale_factor: m.scale_factor(),
                 name: m.name().unwrap_or_else(|| "XENEON EDGE".to_owned()),
             },
@@ -229,7 +232,10 @@ fn build_window(
         Target::Edge { position, .. } => builder
             .with_decorations(false)
             .with_position(*position)
-            .with_inner_size(PhysicalSize::new(panel_w, panel_h))
+            .with_inner_size(LogicalSize::new(
+                f64::from(panel_w) * k,
+                f64::from(panel_h) * k,
+            ))
             .with_visible_on_all_workspaces(true),
         Target::Windowed => builder.with_inner_size(LogicalSize::new(
             f64::from(panel_w) * k,
