@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>tr('Git')</title>
+		<link rel="icon" type="image/svg+xml" href="resources/icon.svg" />
+		<meta name="x-icue-property" content="repos" data-label="tr('Repositories (folders, comma or newline separated)')" data-type="textfield" data-default="'~/projects/software/icue-rs'" />
+		<meta name="x-icue-property" content="followTerminal" data-label="tr('Follow terminal')" data-type="switch" data-default="true" />
+		<meta name="x-icue-property" content="commitCount" data-label="tr('Commits to show')" data-type="slider" data-default="20" data-min="5" data-max="50" data-step="1" />
+		<meta name="x-icue-property" content="refreshSeconds" data-label="tr('Refresh every')" data-type="slider" data-default="15" data-min="5" data-max="120" data-step="5" data-unit-label="'s'" />
+		<meta name="x-icue-property" content="showAuthor" data-label="tr('Show author')" data-type="switch" data-default="true" />
+		<meta name="x-icue-property" content="accentColor" data-label="tr('Accent Color')" data-type="color" data-default="'#F5A623'" />
+		<meta name="x-icue-property" content="backgroundColor" data-label="tr('Background Color')" data-type="color" data-default="'#14161B'" />
+		<meta name="x-icue-property" content="textColor" data-label="tr('Text Color')" data-type="color" data-default="'#EEF0F4'" />
+		<script type="application/json" id="x-icue-groups">
+			[
+				{ "title": "tr('Repositories')", "properties": ["repos", "followTerminal", "commitCount", "refreshSeconds"], "info": "tr('Folders must be inside the widget folder permissions. Following the terminal needs a shell hook, see docs/data-sources.md.')" },
+				{ "title": "tr('Display')", "properties": ["showAuthor"] },
+				{ "title": "tr('Appearance')", "properties": ["accentColor", "backgroundColor", "textColor"] }
+			]
+		</script>
+		<link rel="stylesheet" href="styles/git.css" />
+	</head>
+	<body>
+		<main id="root">
+			<nav id="chips" aria-label="Source"></nav>
+			<section id="header"></section>
+			<div id="body">
+				<section id="list-pane">
+					<div id="banner" hidden></div>
+					<div id="commits"></div>
+				</section>
+				<section id="detail" hidden></section>
+			</div>
+		</main>
+		<script src="scripts/git.js"></script>
+	</body>
+</html>

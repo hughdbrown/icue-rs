@@ -1,0 +1,14 @@
+{
+	"author": "EdgeHost",
+	"id": "dev.edgehost.git",
+	"name": "Git",
+	"description": "Branch, status and recent commits of your git repositories, or of the repository your terminal is in. Tap a commit for its files.",
+	"version": "0.1.0",
+	"preview_icon": "resources/icon.svg",
+	"min_app_version": "5.47",
+	"min_framework_version": "1.0.0",
+	"os": [{ "platform": "windows" }, { "platform": "mac" }],
+	"supported_devices": [{ "type": "dashboard_lcd" }],
+	"interactive": true,
+	"permissions": [{ "type": "folder", "path": "<Home>" }]
+}

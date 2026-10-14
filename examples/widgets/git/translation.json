@@ -1,0 +1,19 @@
+{
+	"en": {
+		"translation": {
+			"Git": "Git",
+			"Repositories (folders, comma or newline separated)": "Repositories (folders, comma or newline separated)",
+			"Follow terminal": "Follow terminal",
+			"Commits to show": "Commits to show",
+			"Refresh every": "Refresh every",
+			"Show author": "Show author",
+			"Accent Color": "Accent Color",
+			"Background Color": "Background Color",
+			"Text Color": "Text Color",
+			"Repositories": "Repositories",
+			"Display": "Display",
+			"Appearance": "Appearance",
+			"Folders must be inside the widget folder permissions. Following the terminal needs a shell hook, see docs/data-sources.md.": "Folders must be inside the widget folder permissions. Following the terminal needs a shell hook, see docs/data-sources.md."
+		}
+	}
+}
