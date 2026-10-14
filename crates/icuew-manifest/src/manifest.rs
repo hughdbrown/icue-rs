@@ -170,6 +170,16 @@ pub struct SupportedDevice {
     pub features: Vec<String>,
 }
 
+/// A declared `url` permission: requests to `domain` (and its subdomains) are allowed, optionally
+/// only on `port`. `domain` `"any"` allows every non-localhost host.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UrlPermission {
+    /// Lower-case host name, IP address, or `any`.
+    pub domain: String,
+    /// Port restriction, if declared.
+    pub port: Option<u16>,
+}
+
 /// Parsed `manifest.json`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Manifest {
@@ -222,6 +232,29 @@ impl Manifest {
         })
     }
 
+    /// The `{"type": "url", "domain": …, "port"?: …}` permissions, normalised (lower-case domain).
+    /// Malformed entries are skipped.
+    #[must_use]
+    pub fn url_permissions(&self) -> Vec<UrlPermission> {
+        self.permissions
+            .iter()
+            .filter(|p| p.get("type").and_then(serde_json::Value::as_str) == Some("url"))
+            .filter_map(|p| {
+                let domain = p
+                    .get("domain")?
+                    .as_str()?
+                    .trim()
+                    .trim_end_matches('.')
+                    .to_ascii_lowercase();
+                let port = match p.get("port") {
+                    None | Some(serde_json::Value::Null) => None,
+                    Some(v) => Some(u16::try_from(v.as_u64()?).ok()?),
+                };
+                (!domain.is_empty()).then_some(UrlPermission { domain, port })
+            })
+            .collect()
+    }
+
     /// Whether the widget declares support for the XENEON EDGE.
     #[must_use]
     pub fn supports_edge(&self) -> bool {
@@ -270,6 +303,30 @@ mod tests {
         );
         let missing = MINIMAL.replace(r#""author": "A", "#, "");
         assert!(Manifest::from_json(&missing).is_err());
+    }
+
+    #[test]
+    fn url_permissions_are_normalised() {
+        let with = MINIMAL.replace(
+            r#""required_plugins""#,
+            r#""permissions": [{"type": "url", "domain": "API.Example.com.", "port": 443},
+                              {"type": "url", "domain": "any"}, {"type": "url", "domain": "x", "port": 70000},
+                              {"type": "file", "path": "<Documents>/x"}], "required_plugins""#,
+        );
+        let m = Manifest::from_json(&with).unwrap();
+        assert_eq!(
+            m.url_permissions(),
+            vec![
+                UrlPermission {
+                    domain: "api.example.com".into(),
+                    port: Some(443)
+                },
+                UrlPermission {
+                    domain: "any".into(),
+                    port: None
+                },
+            ]
+        );
     }
 
     #[test]

@@ -55,6 +55,49 @@
 		);
 	}
 
+	// fetch() to domains the manifest declares goes through EdgeHost (same-origin, so APIs that send
+	// no CORS headers still work). EdgeHost re-checks the permission; this only picks the route.
+	const proxied = (url) => {
+		if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+		const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+		const port = Number(url.port) || (url.protocol === "https:" ? 443 : 80);
+		const loopback = host === "localhost" || host.startsWith("127.") || host === "::1";
+		return P.proxy.some((p) => {
+			const hostOk = p.domain === "any" ? !loopback : host === p.domain || host.endsWith(`.${p.domain}`);
+			const portOk = p.port == null ? !loopback : p.port === port;
+			return hostOk && portOk;
+		});
+	};
+	if (P.proxy.length > 0 && typeof window.fetch === "function") {
+		const nativeFetch = window.fetch.bind(window);
+		window.fetch = (input, init) => {
+			try {
+				const isRequest = typeof Request !== "undefined" && input instanceof Request;
+				const url = new URL(isRequest ? input.url : String(input), location.href);
+				const method = String((init && init.method) || (isRequest ? input.method : "GET")).toUpperCase();
+				if (method === "GET" && proxied(url)) {
+					return nativeFetch(`/__edgehost/fetch?url=${encodeURIComponent(url.href)}`, {
+						signal: init && init.signal,
+					});
+				}
+			} catch (_) {
+				// Unparseable input: let the native fetch report it.
+			}
+			return nativeFetch(input, init);
+		};
+	}
+
+	// Typing needs EdgeHost to be the active app; ask for it when a text field gains focus.
+	const EDITABLE = /^(INPUT|TEXTAREA|SELECT)$/;
+	window.addEventListener(
+		"focusin",
+		(e) => {
+			const t = e.target;
+			if (t && (EDITABLE.test(t.tagName) || t.isContentEditable)) post({ k: "keyboard" });
+		},
+		true,
+	);
+
 	const trTable = P.tr;
 	const trSync = (key) => (Object.prototype.hasOwnProperty.call(trTable, key) ? trTable[key] : String(key));
 

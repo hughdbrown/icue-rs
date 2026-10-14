@@ -17,7 +17,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 pub use head::{ControlKind, HeadInfo, PropertyDef, PropertyGroup, PropertyName};
-pub use manifest::{DeviceType, Manifest, OsEntry, Platform, PluginRef, SupportedDevice, WidgetId};
+pub use manifest::{
+    DeviceType, Manifest, OsEntry, Platform, PluginRef, SupportedDevice, UrlPermission, WidgetId,
+};
 pub use translations::Translations;
 pub use validate::{Diagnostic, Report, Severity, validate_dir};
 

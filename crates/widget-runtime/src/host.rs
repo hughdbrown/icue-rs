@@ -99,6 +99,7 @@ pub fn run_one(opts: &RunOptions) -> Result<()> {
                     *control_flow = ControlFlow::Exit;
                 }
             }
+            Event::UserEvent(RuntimeEvent::WantsKeyboard) => surface.take_keyboard(),
             Event::UserEvent(RuntimeEvent::Close)
             | Event::WindowEvent {
                 event: WindowEvent::CloseRequested,

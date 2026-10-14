@@ -40,6 +40,7 @@ const BASE = {
 	tr: { Hello: "Hallo" },
 	modules: [],
 	plugins: ["Sensorsdataprovider"],
+	proxy: [],
 };
 
 const EVALUATE = {
@@ -135,4 +136,40 @@ test("function and promise defaults are resolved; search-combobox keeps the key"
 	await new Promise((r) => setTimeout(r, 10));
 	const evaluated = posted.find((m) => m.k === "evaluated");
 	assert.deepEqual(evaluated.values, { city: "5368361", later: "x" });
+});
+
+test("fetch to declared domains is routed through the EdgeHost proxy", async () => {
+	const calls = [];
+	const payload = { ...BASE, proxy: [{ domain: "finance.yahoo.com", port: 443 }] };
+	const posted = [];
+	const context = {
+		console: { log() {}, info() {}, warn() {}, error() {} },
+		document: { readyState: "complete", addEventListener() {} },
+		addEventListener() {},
+		ipc: { postMessage: (m) => posted.push(JSON.parse(m)) },
+		location: { href: "icuew://abc/index.html" },
+		URL,
+		fetch: (input, init) => {
+			calls.push(String(input));
+			return Promise.resolve("ok");
+		},
+	};
+	context.window = context;
+	vm.createContext(context);
+	vm.runInContext(SOURCE.replace("__PAYLOAD__", JSON.stringify(payload)), context);
+	await context.fetch("https://query1.finance.yahoo.com/v8/finance/chart/AAPL?range=1d");
+	await context.fetch("https://example.com/data.json");
+	await context.fetch("https://query1.finance.yahoo.com/x", { method: "POST" });
+	assert.deepEqual(calls, [
+		"/__edgehost/fetch?url=https%3A%2F%2Fquery1.finance.yahoo.com%2Fv8%2Ffinance%2Fchart%2FAAPL%3Frange%3D1d",
+		"https://example.com/data.json",
+		"https://query1.finance.yahoo.com/x",
+	]);
+});
+
+test("focusing a text field asks for the keyboard", () => {
+	const { posted, listeners } = run(BASE);
+	listeners["window:focusin"]({ target: { tagName: "DIV" } });
+	listeners["window:focusin"]({ target: { tagName: "INPUT" } });
+	assert.deepEqual(plain(posted.filter((m) => m.k === "keyboard")), [{ k: "keyboard" }]);
 });

@@ -11,7 +11,7 @@
 
 use std::collections::BTreeMap;
 
-use icuew_manifest::{ControlKind, WidgetDef};
+use icuew_manifest::{ControlKind, UrlPermission, WidgetDef};
 use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
@@ -85,6 +85,7 @@ struct Payload<'a> {
     modules: Vec<ModulePayload>,
     plugins: Vec<String>,
     escape_closes: bool,
+    proxy: Vec<UrlPermission>,
 }
 
 #[derive(Serialize)]
@@ -162,6 +163,7 @@ pub fn render(
             .iter()
             .map(icuew_manifest::PluginRef::facade_name)
             .collect(),
+        proxy: def.manifest.url_permissions(),
     };
     let json = script_safe(&serde_json::to_string(&payload)?);
     Ok(SHIM_SOURCE.replacen(PAYLOAD_TOKEN, &json, 1))

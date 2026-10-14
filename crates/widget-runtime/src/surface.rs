@@ -10,6 +10,7 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use edge_layout::{
@@ -27,6 +28,7 @@ use wry::{Rect, WebView, WebViewBuilder};
 
 use crate::assets::{mime_for, read_asset, resolve};
 use crate::display::list_displays;
+use crate::proxy;
 use crate::shim::{self, ShimConfig, ShimMode, TemperatureUnit};
 
 /// URL scheme widgets are served from.
@@ -67,6 +69,8 @@ pub enum RuntimeEvent {
     },
     /// A widget asked to close the run (Escape with [`SurfaceOptions::escape_closes`]).
     Close,
+    /// A text field in a widget gained focus: make EdgeHost the key app so typing reaches it.
+    WantsKeyboard,
 }
 
 /// Where web views deliver [`RuntimeEvent`]s (usually an event-loop proxy).
@@ -224,6 +228,12 @@ impl Surface {
         &self.window
     }
 
+    /// Make EdgeHost the active app with the surface as key window, so keystrokes reach the
+    /// focused widget field ([`RuntimeEvent::WantsKeyboard`]).
+    pub fn take_keyboard(&self) {
+        self.window.set_focus();
+    }
+
     /// Start computing `instance`'s property defaults in a hidden view. The result arrives as
     /// [`RuntimeEvent::Evaluated`]; call [`Surface::end_evaluation`] afterwards.
     ///
@@ -322,6 +332,7 @@ impl Surface {
     ) -> Result<WebView> {
         let serve_root = instance.root.clone();
         let serve_common = self.opts.common_dir.clone();
+        let permissions = Arc::new(instance.def.manifest.url_permissions());
         let label = instance.def.manifest.id.to_string();
         let id = instance.id;
         let sink = Rc::clone(&self.sink);
@@ -334,8 +345,17 @@ impl Surface {
             .with_accept_first_mouse(true)
             .with_devtools(self.opts.devtools)
             .with_initialization_script_for_main_only(script, true)
-            .with_custom_protocol(SCHEME.to_owned(), move |_id, request| {
-                serve(&serve_root, serve_common.as_deref(), request.uri().path())
+            .with_asynchronous_custom_protocol(SCHEME.to_owned(), move |_id, request, responder| {
+                let uri = request.uri();
+                if uri.path() == proxy::ROUTE {
+                    proxy::handle(
+                        Arc::clone(&permissions),
+                        uri.query().map(str::to_owned),
+                        responder,
+                    );
+                } else {
+                    responder.respond(serve(&serve_root, serve_common.as_deref(), uri.path()));
+                }
             })
             .with_ipc_handler(move |request| {
                 if let Some(event) = report(&label, id, request.body()) {
@@ -418,6 +438,7 @@ fn report(label: &str, instance: Uuid, body: &str) -> Option<RuntimeEvent> {
         "console" => eprintln!("[{label}] {}: {}", field("level"), field("msg")),
         "booted" => eprintln!("[{label}] booted"),
         "close" => return Some(RuntimeEvent::Close),
+        "keyboard" => return Some(RuntimeEvent::WantsKeyboard),
         "evaluated" => {
             let values = match message.get("values") {
                 Some(Value::Object(map)) => {

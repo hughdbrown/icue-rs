@@ -150,8 +150,15 @@ impl App {
 
     /// Handle a report from a widget view.
     pub fn on_runtime(&mut self, event: RuntimeEvent) {
-        let RuntimeEvent::Evaluated { instance, values } = event else {
-            return;
+        let (instance, values) = match event {
+            RuntimeEvent::Evaluated { instance, values } => (instance, values),
+            RuntimeEvent::WantsKeyboard => {
+                if let Some(surface) = &self.surface {
+                    surface.take_keyboard();
+                }
+                return;
+            }
+            RuntimeEvent::Close => return,
         };
         let id = InstanceId(instance);
         // Persist even if the page changed meanwhile; the defaults are still valid.
