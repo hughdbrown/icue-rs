@@ -94,14 +94,7 @@ pub fn install(store: &Store, source: &Path) -> Result<InstallOutcome, InstallEr
     let id = def.manifest.id;
     let version = def.manifest.version;
     let dest = store.widget_dir(&id, &version);
-    let replaced = dest.exists();
-    if replaced {
-        fs::remove_dir_all(&dest).map_err(|e| io_err("removing old copy", &dest, e))?;
-    }
-    if let Some(parent) = dest.parent() {
-        fs::create_dir_all(parent).map_err(|e| io_err("creating", parent, e))?;
-    }
-    fs::rename(&root, &dest).map_err(|e| io_err("moving widget into", &dest, e))?;
+    let replaced = replace_dir(&root, &dest, &store.tmp_dir())?;
     Ok(InstallOutcome {
         id,
         version,
@@ -152,15 +145,44 @@ pub fn install_addin(store: &Store, source: &Path) -> Result<AddinOutcome, Insta
         )));
     }
     let dest = store.addins_dir().join(&addin.id);
-    let replaced = dest.exists();
-    if replaced {
-        fs::remove_dir_all(&dest).map_err(|e| io_err("removing old copy", &dest, e))?;
-    }
-    fs::create_dir_all(store.addins_dir())
-        .map_err(|e| io_err("creating", &store.addins_dir(), e))?;
-    fs::rename(&root, &dest).map_err(|e| io_err("moving add-in into", &dest, e))?;
+    let replaced = replace_dir(&root, &dest, &store.tmp_dir())?;
     let addin = Addin::load(&dest).map_err(|e| InstallError::InvalidAddin(e.to_string()))?;
     Ok(AddinOutcome { addin, replaced })
+}
+
+/// Move the staged folder `new` to `dest`, keeping any existing `dest` until the move has
+/// succeeded: the old copy is first moved aside into a fresh folder under `tmp` (the store's own
+/// `tmp/`, so both moves are renames on one file system), and put back if the new copy cannot be
+/// moved in. The aside folder is separate from the staging folder, because `new` may be the
+/// staging folder itself. Returns whether an existing copy was replaced.
+fn replace_dir(new: &Path, dest: &Path, tmp: &Path) -> Result<bool, InstallError> {
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|e| io_err("creating", parent, e))?;
+    }
+    let aside = tempfile::Builder::new()
+        .prefix("previous-")
+        .tempdir_in(tmp)
+        .map_err(|e| io_err("creating a folder in", tmp, e))?;
+    let backup = aside.path().join("copy");
+    let replaced = dest.exists();
+    if replaced {
+        fs::rename(dest, &backup)
+            .map_err(|e| io_err("moving the installed copy aside", dest, e))?;
+    }
+    if let Err(e) = fs::rename(new, dest) {
+        if replaced {
+            if let Err(restore) = fs::rename(&backup, dest) {
+                eprintln!(
+                    "could not restore {} from {}: {restore}",
+                    dest.display(),
+                    backup.display()
+                );
+            }
+        }
+        return Err(io_err("moving the new copy into", dest, e));
+    }
+    // Dropping `aside` deletes the old copy.
+    Ok(replaced)
 }
 
 /// Unpack `source` (archive or folder) into `dest` and return the widget's root inside it: `dest`
@@ -386,13 +408,65 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_replace_keeps_the_installed_copy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("widgets/w/1.0");
+        fs::create_dir_all(&dest).unwrap();
+        fs::write(dest.join("index.html"), "old").unwrap();
+        let scratch = tmp.path().join("scratch");
+        fs::create_dir_all(&scratch).unwrap();
+        // The staged copy is missing, so moving it in fails.
+        let err = replace_dir(&tmp.path().join("missing"), &dest, &scratch);
+        assert!(matches!(err, Err(InstallError::Io { .. })), "{err:?}");
+        assert_eq!(fs::read_to_string(dest.join("index.html")).unwrap(), "old");
+
+        let new = tmp.path().join("new");
+        fs::create_dir_all(&new).unwrap();
+        fs::write(new.join("index.html"), "new").unwrap();
+        assert!(replace_dir(&new, &dest, &scratch).unwrap());
+        assert_eq!(fs::read_to_string(dest.join("index.html")).unwrap(), "new");
+        assert_eq!(
+            fs::read_dir(&scratch).unwrap().count(),
+            0,
+            "old copy deleted"
+        );
+        assert_eq!(
+            fs::read_dir(&dest).unwrap().count(),
+            1,
+            "nothing extra in the new copy"
+        );
+        let fresh = tmp.path().join("fresh");
+        fs::create_dir_all(&fresh).unwrap();
+        assert!(!replace_dir(&fresh, &tmp.path().join("widgets/x/1.0"), &scratch).unwrap());
+    }
+
+    #[test]
     fn installs_from_folder_and_replaces() {
         let home = tempfile::tempdir().unwrap();
         let store = Store::open(home.path()).unwrap();
         let first = install(&store, &hello()).unwrap();
         assert_eq!(first.id.as_str(), "dev.edgehost.hello-edge");
         assert!(!first.replaced && first.path.join("index.html").is_file());
-        assert!(install(&store, &hello()).unwrap().replaced);
+        let again = install(&store, &hello()).unwrap();
+        assert!(again.replaced);
+        let names = |dir: &Path| -> Vec<String> {
+            let mut v: Vec<String> = fs::read_dir(dir)
+                .unwrap()
+                .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .collect();
+            v.sort();
+            v
+        };
+        assert_eq!(
+            names(&again.path),
+            names(&hello()),
+            "the replaced copy holds only the widget"
+        );
+        assert_eq!(
+            names(&store.tmp_dir()),
+            Vec::<String>::new(),
+            "no leftovers in tmp/"
+        );
         assert_eq!(store.installed().unwrap().len(), 1);
         assert_eq!(store.latest(&first.id).unwrap().version, first.version);
         assert_eq!(
