@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>tr('Stock Portfolio')</title>
+		<link rel="icon" type="image/svg+xml" href="resources/icon.svg" />
+		<meta name="x-icue-property" content="holdings" data-label="tr('Starting holdings (TICKER:shares, …)')" data-type="textfield" data-default="'AAPL:10, MSFT:5, NVDA:8, VOO:4'" />
+		<meta name="x-icue-property" content="period" data-label="tr('Default period')" data-type="tab-buttons" data-default="'1d'" data-values="[{'key':'1d','value':'1D'},{'key':'5d','value':'5D'},{'key':'1mo','value':'1M'},{'key':'6mo','value':'6M'},{'key':'ytd','value':'YTD'},{'key':'1y','value':'1Y'}]" />
+		<meta name="x-icue-property" content="refreshSeconds" data-label="tr('Refresh every')" data-type="slider" data-default="60" data-min="15" data-max="600" data-step="15" data-unit-label="'s'" />
+		<meta name="x-icue-property" content="textColor" data-label="tr('Text Color')" data-type="color" data-default="'#F2F4F8'" />
+		<meta name="x-icue-property" content="accentColor" data-label="tr('Accent Color')" data-type="color" data-default="'#FFD200'" />
+		<meta name="x-icue-property" content="backgroundColor" data-label="tr('Background Color')" data-type="color" data-default="'#12151C'" />
+		<meta name="x-icue-property" content="upColor" data-label="tr('Gain Color')" data-type="color" data-default="'#2ECC71'" />
+		<meta name="x-icue-property" content="downColor" data-label="tr('Loss Color')" data-type="color" data-default="'#FF5C5C'" />
+		<script type="application/json" id="x-icue-groups">
+			[
+				{ "title": "tr('Portfolio')", "properties": ["holdings", "period", "refreshSeconds"], "info": "tr('Holdings edited on the widget take precedence until these starting holdings change.')" },
+				{ "title": "tr('Appearance')", "properties": ["textColor", "accentColor", "backgroundColor", "upColor", "downColor"] }
+			]
+		</script>
+		<link rel="stylesheet" href="styles/portfolio.css" />
+	</head>
+	<body>
+		<main id="root">
+			<section id="summary">
+				<div id="label">Portfolio</div>
+				<div id="total">—</div>
+				<div id="change" class="flat">—</div>
+			</section>
+			<nav id="periods" aria-label="Period"></nav>
+			<section id="chart-box">
+				<svg id="chart" viewBox="0 0 1000 300" preserveAspectRatio="none" aria-hidden="true">
+					<path id="area" d="" />
+					<line id="baseline" x1="0" x2="1000" y1="150" y2="150" />
+					<polyline id="line" points="" />
+				</svg>
+			</section>
+			<section id="holdings">
+				<table>
+					<thead>
+						<tr><th>Ticker</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Value</th><th class="num">Change</th></tr>
+					</thead>
+					<tbody id="rows"></tbody>
+				</table>
+			</section>
+			<footer id="footer">
+				<span id="status">Loading…</span>
+				<button id="edit" type="button">Edit</button>
+			</footer>
+		</main>
+
+		<div id="editor" hidden>
+			<div class="editor-head">
+				<h2>Edit holdings</h2>
+				<span class="hint">US tickers, e.g. AAPL, BRK-B, VOO</span>
+			</div>
+			<div id="editor-rows"></div>
+			<div id="editor-error" role="alert"></div>
+			<div class="editor-actions">
+				<button id="add-row" type="button">+ Add</button>
+				<button id="reset" type="button">Reset to settings</button>
+				<span class="spacer"></span>
+				<button id="cancel" type="button">Cancel</button>
+				<button id="save" type="button" class="primary">Save</button>
+			</div>
+		</div>
+
+		<script src="scripts/portfolio.js"></script>
+	</body>
+</html>

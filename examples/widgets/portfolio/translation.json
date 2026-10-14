@@ -1,0 +1,18 @@
+{
+	"en": {
+		"translation": {
+			"Stock Portfolio": "Stock Portfolio",
+			"Starting holdings (TICKER:shares, …)": "Starting holdings (TICKER:shares, …)",
+			"Default period": "Default period",
+			"Refresh every": "Refresh every",
+			"Text Color": "Text Color",
+			"Accent Color": "Accent Color",
+			"Background Color": "Background Color",
+			"Gain Color": "Gain Color",
+			"Loss Color": "Loss Color",
+			"Portfolio": "Portfolio",
+			"Appearance": "Appearance",
+			"Holdings edited on the widget take precedence until these starting holdings change.": "Holdings edited on the widget take precedence until these starting holdings change."
+		}
+	}
+}

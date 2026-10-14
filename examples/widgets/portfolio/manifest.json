@@ -1,0 +1,14 @@
+{
+	"author": "EdgeHost",
+	"id": "dev.edgehost.portfolio",
+	"name": "Stock Portfolio",
+	"description": "Value of a US stock portfolio and its change over a chosen period. Tap Edit to change holdings.",
+	"version": "0.1.0",
+	"preview_icon": "resources/icon.svg",
+	"min_app_version": "5.47",
+	"min_framework_version": "1.0.0",
+	"os": [{ "platform": "windows" }, { "platform": "mac" }],
+	"supported_devices": [{ "type": "dashboard_lcd" }],
+	"interactive": true,
+	"permissions": [{ "type": "url", "domain": "query1.finance.yahoo.com", "port": 443 }]
+}

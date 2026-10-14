@@ -1,0 +1,289 @@
+:root {
+	--fg: #f2f4f8;
+	--accent: #ffd200;
+	--bg: #12151c;
+	--up: #2ecc71;
+	--down: #ff5c5c;
+	--muted: color-mix(in srgb, var(--fg) 55%, transparent);
+	--line: color-mix(in srgb, var(--fg) 14%, transparent);
+	--trend: var(--up);
+}
+* {
+	box-sizing: border-box;
+}
+html,
+body {
+	margin: 0;
+	height: 100%;
+	overflow: hidden;
+	background: var(--bg);
+	color: var(--fg);
+	font: 18px/1.3 -apple-system, "Segoe UI", system-ui, sans-serif;
+	-webkit-user-select: none;
+	user-select: none;
+}
+button {
+	font: inherit;
+	color: var(--fg);
+	background: color-mix(in srgb, var(--fg) 8%, transparent);
+	border: 1px solid var(--line);
+	border-radius: 12px;
+	min-height: 44px;
+	padding: 0 18px;
+}
+button:active {
+	background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+button.primary {
+	background: var(--accent);
+	color: #111;
+	border-color: var(--accent);
+	font-weight: 600;
+}
+
+/* Tall slots (M: 840x696, portrait): one column. */
+#root {
+	height: 100%;
+	padding: 22px 26px 16px;
+	display: grid;
+	grid-template-columns: 1fr;
+	grid-template-rows: auto auto minmax(90px, 1fr) minmax(0, auto) auto;
+	grid-template-areas: "summary" "periods" "chart" "holdings" "footer";
+	gap: 12px;
+}
+#summary {
+	grid-area: summary;
+}
+#periods {
+	grid-area: periods;
+	display: flex;
+	gap: 8px;
+}
+#chart-box {
+	grid-area: chart;
+	min-height: 0;
+}
+#holdings {
+	grid-area: holdings;
+	min-height: 0;
+	overflow: auto;
+}
+#footer {
+	grid-area: footer;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+/* Short slots (S: 840x344): summary + chart left, holdings right. */
+@media (max-height: 420px) {
+	#root {
+		padding: 16px 20px 12px;
+		grid-template-columns: 1fr 1fr;
+		grid-template-rows: auto auto 1fr auto;
+		grid-template-areas: "summary holdings" "periods holdings" "chart holdings" "footer footer";
+		gap: 8px 20px;
+	}
+	#total {
+		font-size: 40px !important;
+	}
+	#periods button {
+		min-height: 36px;
+		padding: 0 10px;
+		font-size: 15px;
+	}
+	th:nth-child(2),
+	td:nth-child(2),
+	th:nth-child(3),
+	td:nth-child(3) {
+		display: none;
+	}
+}
+
+/* Wide slots (L: 1688x696, XL: 2536x696): summary + chart left, holdings right. */
+@media (min-width: 1500px) and (min-height: 421px) {
+	#root {
+		grid-template-columns: 1fr 1fr;
+		grid-template-rows: auto auto 1fr auto;
+		grid-template-areas: "summary holdings" "periods holdings" "chart holdings" "footer footer";
+		gap: 14px 32px;
+	}
+}
+
+#label {
+	color: var(--accent);
+	font-size: 15px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+#total {
+	font-size: 56px;
+	font-weight: 650;
+	font-variant-numeric: tabular-nums;
+	line-height: 1.05;
+}
+#change {
+	font-size: 22px;
+	font-variant-numeric: tabular-nums;
+}
+.up {
+	color: var(--up);
+}
+.down {
+	color: var(--down);
+}
+.flat {
+	color: var(--muted);
+}
+
+#periods button {
+	flex: 1;
+	min-width: 0;
+}
+#periods button[aria-pressed="true"] {
+	background: var(--accent);
+	color: #111;
+	border-color: var(--accent);
+	font-weight: 600;
+}
+
+#chart {
+	width: 100%;
+	height: 100%;
+	display: block;
+}
+#line {
+	fill: none;
+	stroke: var(--trend);
+	stroke-width: 3;
+	vector-effect: non-scaling-stroke;
+	stroke-linejoin: round;
+}
+#area {
+	fill: color-mix(in srgb, var(--trend) 16%, transparent);
+	stroke: none;
+}
+#baseline {
+	stroke: var(--muted);
+	stroke-width: 1;
+	stroke-dasharray: 6 6;
+	vector-effect: non-scaling-stroke;
+}
+
+table {
+	width: 100%;
+	border-collapse: collapse;
+	font-variant-numeric: tabular-nums;
+	font-size: 17px;
+}
+th {
+	text-align: left;
+	color: var(--muted);
+	font-weight: 500;
+	font-size: 13px;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	padding: 0 6px 6px;
+	border-bottom: 1px solid var(--line);
+	position: sticky;
+	top: 0;
+	background: var(--bg);
+}
+td {
+	padding: 7px 6px;
+	border-bottom: 1px solid var(--line);
+	white-space: nowrap;
+}
+.num {
+	text-align: right;
+}
+td.sym {
+	font-weight: 650;
+}
+td.err {
+	color: var(--down);
+	white-space: normal;
+}
+
+#status {
+	flex: 1;
+	color: var(--muted);
+	font-size: 14px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+#editor {
+	position: fixed;
+	inset: 0;
+	background: var(--bg);
+	padding: 18px 24px;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+#editor[hidden] {
+	display: none;
+}
+.editor-head {
+	display: flex;
+	align-items: baseline;
+	gap: 16px;
+}
+.editor-head h2 {
+	margin: 0;
+	font-size: 22px;
+	color: var(--accent);
+}
+.hint {
+	color: var(--muted);
+	font-size: 14px;
+}
+#editor-rows {
+	flex: 1;
+	overflow: auto;
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+	align-content: start;
+	gap: 8px 16px;
+}
+.editor-row {
+	display: flex;
+	gap: 8px;
+}
+.editor-row input {
+	font: inherit;
+	color: var(--fg);
+	background: color-mix(in srgb, var(--fg) 6%, transparent);
+	border: 1px solid var(--line);
+	border-radius: 10px;
+	min-height: 44px;
+	padding: 0 12px;
+	min-width: 0;
+	-webkit-user-select: text;
+	user-select: text;
+}
+.editor-row input.ticker {
+	flex: 1.2;
+	text-transform: uppercase;
+}
+.editor-row input.shares {
+	flex: 1;
+	text-align: right;
+}
+.editor-row button {
+	padding: 0 14px;
+}
+#editor-error {
+	color: var(--down);
+	min-height: 1.3em;
+	font-size: 15px;
+}
+.editor-actions {
+	display: flex;
+	gap: 10px;
+}
+.spacer {
+	flex: 1;
+}
