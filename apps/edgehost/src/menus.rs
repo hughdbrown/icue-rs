@@ -12,6 +12,8 @@ pub mod ids {
     pub const PREVIOUS: &str = "previous-page";
     /// Reload `layout.json` and the widgets.
     pub const RELOAD: &str = "reload";
+    /// Open the widget configurator.
+    pub const CONFIGURE: &str = "configure";
     /// Open the data folder in Finder.
     pub const OPEN_DATA: &str = "open-data";
     /// Quit.
@@ -49,6 +51,8 @@ impl Menus {
             .append_items(&[
                 &about,
                 &PredefinedMenuItem::separator(),
+                &MenuItem::with_id(ids::CONFIGURE, "Configure Widgets…", true, None),
+                &PredefinedMenuItem::separator(),
                 &PredefinedMenuItem::quit(None),
             ])
             .context("building the application menu")?;
@@ -64,6 +68,7 @@ impl Menus {
             .append_items(&[
                 &page_label,
                 &PredefinedMenuItem::separator(),
+                &MenuItem::with_id(ids::CONFIGURE, "Configure Widgets…", true, None),
                 &MenuItem::with_id(ids::NEXT, "Next Page", true, None),
                 &MenuItem::with_id(ids::PREVIOUS, "Previous Page", true, None),
                 &MenuItem::with_id(ids::RELOAD, "Reload Layout", true, None),

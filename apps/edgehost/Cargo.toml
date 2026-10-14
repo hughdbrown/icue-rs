@@ -13,9 +13,15 @@ clap.workspace = true
 edge-layout.workspace = true
 edge-store.workspace = true
 icuew-manifest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 tao.workspace = true
 tray-icon = "0.26"
 widget-runtime.workspace = true
+wry.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

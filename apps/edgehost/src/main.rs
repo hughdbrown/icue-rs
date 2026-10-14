@@ -5,6 +5,8 @@
 //! `layout.json` within a couple of seconds and reloads.
 
 mod app;
+mod config_api;
+mod configurator;
 mod menus;
 
 use std::path::PathBuf;
@@ -31,7 +33,7 @@ const POLL: Duration = Duration::from_secs(2);
     about = "iCUE HTML widget dashboard for the XENEON EDGE"
 )]
 struct Args {
-    /// Data folder (default: `$EDGEHOST_HOME` or `~/Library/Application Support/EdgeHost`).
+    /// Data folder (default: `$EDGEHOST_HOME`, else the platform data folder).
     #[arg(long, env = "EDGEHOST_HOME")]
     home: Option<PathBuf>,
     /// Override the layout's display: auto, windowed, or an index / name from `edgectl displays`.
@@ -40,6 +42,9 @@ struct Args {
     /// Enable the Safari Web Inspector for widgets.
     #[arg(long)]
     devtools: bool,
+    /// Open the widget configurator at start.
+    #[arg(long)]
+    configure: bool,
 }
 
 /// Everything the event loop reacts to besides window events.
@@ -49,6 +54,8 @@ pub enum AppEvent {
     Runtime(RuntimeEvent),
     /// A menu item was chosen.
     Menu(String),
+    /// A request from the configurator UI (JSON text).
+    Config(String),
 }
 
 fn main() -> Result<()> {
@@ -70,6 +77,7 @@ fn main() -> Result<()> {
         store,
         args.display,
         args.devtools,
+        args.configure,
         event_loop.create_proxy(),
     );
 
@@ -90,6 +98,7 @@ fn main() -> Result<()> {
                 }
             }
             Event::UserEvent(AppEvent::Runtime(e)) => app.on_runtime(e),
+            Event::UserEvent(AppEvent::Config(body)) => app.on_config(&body, target),
             Event::UserEvent(AppEvent::Menu(id)) => {
                 if app.on_menu(&id, target) {
                     *control_flow = ControlFlow::Exit;
@@ -97,8 +106,9 @@ fn main() -> Result<()> {
             }
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
+                window_id,
                 ..
-            } => *control_flow = ControlFlow::Exit,
+            } if app.on_close(window_id) => *control_flow = ControlFlow::Exit,
             _ => {}
         }
     })

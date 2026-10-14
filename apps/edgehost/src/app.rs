@@ -8,9 +8,14 @@ use edge_layout::DisplayChoice;
 use edge_store::{InstanceId, Layout, Store};
 use icuew_manifest::WidgetDef;
 use tao::event_loop::{EventLoopProxy, EventLoopWindowTarget};
-use widget_runtime::{EventSink, RuntimeEvent, Surface, SurfaceOptions, WidgetInstance};
+use tao::window::WindowId;
+use widget_runtime::{
+    EventSink, RuntimeEvent, Surface, SurfaceOptions, WidgetInstance, list_displays,
+};
 
 use crate::AppEvent;
+use crate::config_api::{self, Outcome, Request};
+use crate::configurator::Configurator;
 use crate::menus::{Menus, ids};
 
 /// The running dashboard.
@@ -26,6 +31,9 @@ pub struct App {
     /// Instances on the current page, with their parsed widgets.
     shown: Vec<WidgetInstance>,
     menus: Option<Menus>,
+    configurator: Option<Configurator>,
+    configurator_connected: bool,
+    open_configurator_at_start: bool,
 }
 
 impl App {
@@ -34,6 +42,7 @@ impl App {
         store: Store,
         display_override: Option<DisplayChoice>,
         devtools: bool,
+        open_configurator_at_start: bool,
         proxy: EventLoopProxy<AppEvent>,
     ) -> Self {
         Self {
@@ -47,6 +56,9 @@ impl App {
             surface: None,
             shown: Vec::new(),
             menus: None,
+            configurator: None,
+            configurator_connected: false,
+            open_configurator_at_start,
         }
     }
 
@@ -57,7 +69,11 @@ impl App {
     /// If the menus, the layout or the surface cannot be created.
     pub fn start(&mut self, target: &EventLoopWindowTarget<AppEvent>) -> Result<()> {
         self.menus = Some(Menus::install()?);
-        self.reload(target)
+        self.reload(target)?;
+        if self.open_configurator_at_start || self.layout.instances().next().is_none() {
+            self.open_configurator(target);
+        }
+        Ok(())
     }
 
     /// Re-read `layout.json`, reopen the surface and show the current page.
@@ -118,7 +134,9 @@ impl App {
             menus.set_page(self.page, self.layout.pages.len());
         }
         let Some(page) = self.layout.pages.get(self.page) else {
-            eprintln!("the layout is empty: add widgets with `edgectl layout add <widget-id>`");
+            eprintln!(
+                "the layout is empty: add widgets in Configure Widgets… (menu bar) or with `edgectl layout add`"
+            );
             return;
         };
         for inst in &page.instances {
@@ -171,6 +189,9 @@ impl App {
             eprintln!("saving layout.json: {e:#}");
         }
         self.layout_mtime = self.layout_file_mtime();
+        if let Some(c) = &self.configurator {
+            c.notify_changed();
+        }
         let Some(surface) = self.surface.as_mut() else {
             return;
         };
@@ -202,6 +223,7 @@ impl App {
                 self.show_page();
             }
             ids::RELOAD => self.reload_or_report(target),
+            ids::CONFIGURE => self.open_configurator(target),
             ids::OPEN_DATA => {
                 if let Err(e) = widget_runtime::platform::reveal(self.store.root()) {
                     eprintln!("opening {}: {e}", self.store.root().display());
@@ -217,7 +239,126 @@ impl App {
         if self.layout_file_mtime() != self.layout_mtime {
             eprintln!("layout.json changed; reloading");
             self.reload_or_report(target);
+            if let Some(c) = &self.configurator {
+                c.notify_changed();
+            }
         }
+    }
+
+    /// Open the configurator, or bring it to the front.
+    pub fn open_configurator(&mut self, target: &EventLoopWindowTarget<AppEvent>) {
+        if let Some(c) = &self.configurator {
+            c.focus();
+            return;
+        }
+        match Configurator::open(
+            target,
+            self.proxy.clone(),
+            self.store.widgets_dir(),
+            self.devtools,
+        ) {
+            Ok(c) => self.configurator = Some(c),
+            Err(e) => eprintln!("opening the configurator: {e:#}"),
+        }
+    }
+
+    /// Handle a configurator request: apply it, persist and show the result, and reply.
+    pub fn on_config(&mut self, body: &str, target: &EventLoopWindowTarget<AppEvent>) {
+        let request: Request = match serde_json::from_str(body) {
+            Ok(r) => r,
+            Err(e) => {
+                match serde_json::from_str::<serde_json::Value>(body) {
+                    Ok(v) if v.get("k").and_then(serde_json::Value::as_str) == Some("console") => {
+                        eprintln!(
+                            "[configurator] {}",
+                            v.get("msg")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or_default()
+                        );
+                    }
+                    _ => eprintln!("configurator: unparseable request: {e}"),
+                }
+                return;
+            }
+        };
+        let displays = list_displays(target);
+        let outcome = config_api::handle(
+            &self.store,
+            &mut self.layout,
+            &displays,
+            &request.method,
+            &request.params,
+        );
+        if request.method == "state.get" && !self.configurator_connected {
+            self.configurator_connected = true;
+            if let Ok(Outcome::Read(state)) = &outcome {
+                let count = |key: &str| {
+                    state
+                        .get(key)
+                        .and_then(serde_json::Value::as_array)
+                        .map_or(0, Vec::len)
+                };
+                eprintln!(
+                    "configurator connected: {} widget(s) installed, {} page(s)",
+                    count("widgets"),
+                    count("pages")
+                );
+            }
+        }
+        if request.method != "state.get" {
+            let status = outcome
+                .as_ref()
+                .map_or_else(|e| format!("error: {e:#}"), |_| "ok".to_owned());
+            eprintln!(
+                "configurator: {} {} → {status}",
+                request.method, request.params
+            );
+        }
+        let reply = match outcome {
+            Ok(Outcome::Read(result)) => Ok(result),
+            Ok(Outcome::Changed(result)) => self.persist().map(|()| {
+                if self.page >= self.layout.pages.len() {
+                    self.page = self.layout.pages.len().saturating_sub(1);
+                }
+                self.show_page();
+                result
+            }),
+            Ok(Outcome::Reopen(result)) => self.persist().map(|()| {
+                self.reload_or_report(target);
+                result
+            }),
+            Err(e) => {
+                // Discard a partial in-memory change by re-reading the saved layout.
+                if let Ok(saved) = self.store.load_layout() {
+                    self.layout = saved;
+                }
+                Err(format!("{e:#}"))
+            }
+        };
+        if let Some(c) = &self.configurator {
+            c.reply(request.id, reply);
+        }
+    }
+
+    /// A window's close button was pressed. Returns `true` to quit (the Edge surface closed).
+    pub fn on_close(&mut self, window: WindowId) -> bool {
+        if self
+            .configurator
+            .as_ref()
+            .is_some_and(|c| c.window_id() == window)
+        {
+            self.configurator = None;
+            return false;
+        }
+        true
+    }
+
+    fn persist(&mut self) -> Result<(), String> {
+        self.store
+            .save_layout(&self.layout)
+            .map_err(|e| format!("saving layout.json: {e:#}"))?;
+        self.layout_mtime = self.layout_file_mtime();
+        Ok(())
     }
 
     fn reload_or_report(&mut self, target: &EventLoopWindowTarget<AppEvent>) {
