@@ -7,7 +7,7 @@
 //! calls the free functions below and contains no `cfg` of its own.
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use tao::monitor::MonitorHandle;
@@ -79,6 +79,12 @@ pub trait Platform {
 
     /// A web-view builder that uses `storage` for `instance`.
     fn builder(storage: &mut Self::Storage, instance: Uuid) -> WebViewBuilder<'_>;
+
+    /// The `<Runtime>` folder: per-user application data root.
+    fn runtime_dir(home: &Path) -> PathBuf;
+
+    /// The user's videos folder (`<Movies>`).
+    fn videos_dir(home: &Path) -> PathBuf;
 
     /// Show `path` in the file manager.
     ///
@@ -156,6 +162,18 @@ pub fn storage(root: &Path, instance: Uuid) -> Storage {
 /// See [`Platform::builder`].
 pub fn builder(storage: &mut Storage, instance: Uuid) -> WebViewBuilder<'_> {
     Current::builder(storage, instance)
+}
+
+/// See [`Platform::runtime_dir`].
+#[must_use]
+pub fn runtime_dir(home: &Path) -> PathBuf {
+    Current::runtime_dir(home)
+}
+
+/// See [`Platform::videos_dir`].
+#[must_use]
+pub fn videos_dir(home: &Path) -> PathBuf {
+    Current::videos_dir(home)
 }
 
 /// See [`Platform::reveal`].

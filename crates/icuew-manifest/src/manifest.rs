@@ -255,6 +255,18 @@ impl Manifest {
             .collect()
     }
 
+    /// The raw `path` of every `{"type": "folder", "path": …}` permission (macros unresolved).
+    #[must_use]
+    pub fn folder_permissions(&self) -> Vec<String> {
+        self.permissions
+            .iter()
+            .filter(|p| p.get("type").and_then(serde_json::Value::as_str) == Some("folder"))
+            .filter_map(|p| p.get("path").and_then(serde_json::Value::as_str))
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+            .collect()
+    }
+
     /// Whether the widget declares support for the XENEON EDGE.
     #[must_use]
     pub fn supports_edge(&self) -> bool {

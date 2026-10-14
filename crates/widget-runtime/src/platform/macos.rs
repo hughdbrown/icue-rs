@@ -2,7 +2,7 @@
 //! `WKWebView`s, and WebKit data stores identified per instance.
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::Result;
@@ -79,6 +79,14 @@ impl Platform for MacOs {
     fn builder(storage: &mut DataStore, _instance: Uuid) -> WebViewBuilder<'_> {
         // Isolated localStorage/IndexedDB per instance, as iCUE does; WebKit keeps the data.
         WebViewBuilder::new().with_data_store_identifier(storage.identifier)
+    }
+
+    fn runtime_dir(home: &Path) -> PathBuf {
+        home.join("Library/Application Support")
+    }
+
+    fn videos_dir(home: &Path) -> PathBuf {
+        home.join("Movies")
     }
 
     fn reveal(path: &Path) -> io::Result<()> {

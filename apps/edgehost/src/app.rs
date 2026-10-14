@@ -103,7 +103,7 @@ impl App {
                 common_dir: self.store.common_dir(),
                 language: "en".to_owned(),
                 escape_closes: false,
-                web_data_dir: self.store.root().join("webdata"),
+                data_dir: self.store.root().to_path_buf(),
             },
             sink,
         )?;

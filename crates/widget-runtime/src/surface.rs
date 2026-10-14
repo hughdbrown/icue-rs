@@ -31,6 +31,7 @@ use crate::display::list_displays;
 use crate::platform;
 use crate::proxy;
 use crate::shim::{self, ShimConfig, ShimMode, TemperatureUnit};
+use crate::sources;
 
 /// URL scheme widgets are served from.
 const SCHEME: &str = "icuew";
@@ -56,8 +57,9 @@ pub struct SurfaceOptions {
     pub language: String,
     /// Developer runs: Escape inside a widget asks the host to close.
     pub escape_closes: bool,
-    /// Where per-instance browser storage lives on platforms that need a folder (Linux).
-    pub web_data_dir: PathBuf,
+    /// EdgeHost's data folder: `<AppData>` for data sources; per-instance browser storage lives in
+    /// its `webdata` subfolder on platforms that need a folder (Linux).
+    pub data_dir: PathBuf,
 }
 
 /// Something a web view reported to the host.
@@ -347,6 +349,14 @@ impl Surface {
         let serve_root = instance.root.clone();
         let serve_common = self.opts.common_dir.clone();
         let permissions = Arc::new(instance.def.manifest.url_permissions());
+        let env = sources::Env {
+            home: std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from),
+            app_data: self.opts.data_dir.clone(),
+        };
+        let data_sources = Arc::new(sources::Context {
+            access: sources::Access::new(&instance.def.manifest.folder_permissions(), &env),
+            env,
+        });
         let label = instance.def.manifest.id.to_string();
         let id = instance.id;
         let sink = Rc::clone(&self.sink);
@@ -360,7 +370,7 @@ impl Surface {
         } = self;
         let storage = storages
             .entry(id)
-            .or_insert_with(|| platform::storage(&opts.web_data_dir, id));
+            .or_insert_with(|| platform::storage(&opts.data_dir.join("webdata"), id));
         let builder = platform::builder(storage, id)
             .with_bounds(bounds)
             .with_visible(visible)
@@ -375,6 +385,13 @@ impl Surface {
                 if uri.path() == proxy::ROUTE {
                     proxy::handle(
                         Arc::clone(&permissions),
+                        uri.query().map(str::to_owned),
+                        responder,
+                    );
+                } else if uri.path().starts_with(sources::PREFIX) && uri.path() != EVAL_PATH {
+                    sources::handle(
+                        Arc::clone(&data_sources),
+                        uri.path().to_owned(),
                         uri.query().map(str::to_owned),
                         responder,
                     );
