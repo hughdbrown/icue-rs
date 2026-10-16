@@ -99,7 +99,11 @@ pub struct UreqHttp {
 
 impl Default for UreqHttp {
     fn default() -> Self {
+        let tls = ureq::tls::TlsConfig::builder()
+            .provider(ureq::tls::TlsProvider::NativeTls)
+            .build();
         let config = ureq::Agent::config_builder()
+            .tls_config(tls)
             .http_status_as_error(false)
             .max_redirects(0)
             .timeout_global(Some(TIMEOUT))

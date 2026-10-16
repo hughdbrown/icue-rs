@@ -6,9 +6,11 @@
 //! - run-out time at the average rate so far: `t + (1 − u) · (elapsed · L) / u`.
 //!
 //! A subscription is **blocked** while any window is used up. Among the others, **urgency** is
-//! the quota left in the tightest window divided by the share of time left in the window that
-//! resets soonest: large when much quota will expire unused soon. The suggestion is the most
-//! urgent subscription.
+//! the worst use-it-or-lose-it ratio over its windows: for each window, the quota it can still
+//! really use (its own remaining, capped by the remaining of every longer window, since using it
+//! spends those too) divided by the share of its time left. 62% of a week left with 13% of the
+//! week to go scores 4.8; a fresh window scores at most 1. The suggestion is the most urgent
+//! subscription.
 
 use jiff::{SignedDuration, Timestamp};
 
@@ -65,13 +67,19 @@ pub fn urgency(windows: &[Window], now: Timestamp) -> Option<f64> {
     if windows.is_empty() || windows.iter().any(Window::is_exhausted) {
         return None;
     }
-    let remaining = windows.iter().map(Window::remaining).fold(1.0, f64::min);
-    let soonest = windows
+    // A window of unknown length counts as the longest.
+    let len = |w: &Window| w.length_secs.unwrap_or(i64::MAX);
+    windows
         .iter()
-        .filter(|w| w.resets_at.is_some())
-        .min_by_key(|w| w.resets_at)
-        .map_or(1.0, |w| time_left(w, now));
-    Some(remaining / soonest.max(MIN_TIME_LEFT))
+        .map(|w| {
+            let usable = windows
+                .iter()
+                .filter(|o| len(o) >= len(w))
+                .map(Window::remaining)
+                .fold(1.0, f64::min);
+            usable / time_left(w, now).max(MIN_TIME_LEFT)
+        })
+        .reduce(f64::max)
 }
 
 /// Fill in each window's pace and each subscription's block and urgency, then pick the
@@ -222,6 +230,18 @@ mod tests {
             ),
         ];
         assert!(approx(urgency(&tight_week, t(NOW)).unwrap(), 0.5));
+        // Much of the week left with little of the week to go dominates a fresh 5 h window.
+        let expiring_week = [
+            five_hour(0.14, "2026-10-16T14:22:00Z"),
+            Window::new(
+                "Week",
+                0.38,
+                Some(t("2026-10-17T09:52:00Z")),
+                Some(7 * 86400),
+            ),
+        ];
+        let u = urgency(&expiring_week, t(NOW)).unwrap();
+        assert!((u - 0.62 / (21.866_666 / 168.0)).abs() < 1e-3, "{u}");
         // A window about to reset does not divide by zero.
         assert!(urgency(&[five_hour(0.5, NOW)], t(NOW)).unwrap().is_finite());
     }
