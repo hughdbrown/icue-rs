@@ -1,0 +1,58 @@
+# EdgeHost LLM Usage — subscriptions to show on the XENEON EDGE.
+#
+# Location: <EdgeHost data folder>/llm-usage.toml
+#   macOS: ~/Library/Application Support/EdgeHost/llm-usage.toml
+#   (or $EDGEHOST_HOME/llm-usage.toml, or the path in $EDGEHOST_LLM_USAGE_CONFIG)
+# It holds secrets: EdgeHost refuses it unless only you can read it (`chmod 600`).
+# `edgectl llm-usage init` writes this file with the right mode; `edgectl llm-usage` tests it.
+#
+# Every [[subscription]] takes `provider`, and optionally `id` (unique; defaults to the provider),
+# `label` (display name) and `enabled = false` (keep the entry but skip it).
+
+# How often to ask the services, in seconds (at least 60).
+poll_seconds = 300
+
+# ── Claude Pro / Max ───────────────────────────────────────────────────────────────────────
+# Uses Claude Code's login (macOS Keychain item "Claude Code-credentials"; elsewhere
+# ~/.claude/.credentials.json). An expired token is refreshed and written back, as Claude Code
+# would. Or set `access_token = "…"` to use a fixed OAuth token (never refreshed).
+[[subscription]]
+provider = "claude"
+label = "Claude"
+
+# ── OpenAI Codex (ChatGPT Plus / Pro) ──────────────────────────────────────────────────────
+# Uses the Codex CLI's login in $CODEX_HOME/auth.json (default ~/.codex/auth.json), refreshed and
+# written back when it expires. `auth_file = "~/elsewhere/auth.json"` points somewhere else;
+# `access_token` + `account_id` use fixed values instead.
+[[subscription]]
+provider = "codex"
+label = "Codex"
+
+# ── Google Gemini app (AI Pro / Ultra) ─────────────────────────────────────────────────────
+# Gemini CLI's Google login no longer reports quota for consumer plans, so this reads the
+# gemini.google.com/usage page. Paste the Cookie request header of a signed-in tab: open
+# gemini.google.com/usage, open Web Inspector → Network, reload, select the page request, and
+# copy the value of its `Cookie` header. Replace it when the widget says it is signed out.
+[[subscription]]
+provider = "gemini"
+label = "Gemini"
+enabled = false
+cookie = "PASTE THE COOKIE HEADER HERE"
+
+# ── Kimi Code membership ───────────────────────────────────────────────────────────────────
+# A Kimi Code API key from kimi.com/code/console. International accounts may need
+# base_url = "https://api.kimi.ai/coding/v1".
+[[subscription]]
+provider = "kimi"
+label = "Kimi"
+enabled = false
+api_key = "PASTE THE KIMI CODE API KEY HERE"
+
+# ── Ollama Cloud ───────────────────────────────────────────────────────────────────────────
+# An API key from ollama.com/settings/keys. Credit plans show dollars of the monthly allowance;
+# legacy plans show the 5-hour session and weekly limits.
+[[subscription]]
+provider = "ollama"
+label = "Ollama"
+enabled = false
+api_key = "PASTE THE OLLAMA API KEY HERE"
