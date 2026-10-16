@@ -16,6 +16,7 @@
 use std::collections::HashSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use serde::Deserialize;
 
@@ -380,13 +381,25 @@ fn check_private(_: &Path, _: &std::fs::Metadata) -> Result<(), ConfigError> {
     Ok(())
 }
 
-/// `$EDGEHOST_LLM_USAGE_CONFIG`, else `llm-usage.toml` in the EdgeHost data folder
-/// (`$EDGEHOST_HOME`, else `~/Library/Application Support/EdgeHost` on macOS or
+/// The data folder the app was started with (`edgehost --home`), if set.
+static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Use `dir` as the EdgeHost data folder in [`default_path`]. Call it before the first fetch; later
+/// calls are ignored.
+pub fn set_data_dir(dir: PathBuf) {
+    let _ = DATA_DIR.set(dir);
+}
+
+/// `$EDGEHOST_LLM_USAGE_CONFIG`, else `llm-usage.toml` in the EdgeHost data folder (the one given
+/// to [`set_data_dir`], else `$EDGEHOST_HOME`, else `~/Library/Application Support/EdgeHost` on macOS or
 /// `$XDG_DATA_HOME/edgehost` / `~/.local/share/edgehost` elsewhere). `None` without `$HOME`.
 #[must_use]
 pub fn default_path() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("EDGEHOST_LLM_USAGE_CONFIG").filter(|p| !p.is_empty()) {
         return Some(PathBuf::from(p));
+    }
+    if let Some(dir) = DATA_DIR.get() {
+        return Some(dir.join(FILE_NAME));
     }
     if let Some(home) = std::env::var_os("EDGEHOST_HOME").filter(|p| !p.is_empty()) {
         return Some(PathBuf::from(home).join(FILE_NAME));

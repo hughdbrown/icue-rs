@@ -711,6 +711,7 @@ dependencies = [
  "edge-layout",
  "edge-store",
  "icuew-manifest",
+ "llm-usage",
  "serde",
  "serde_json",
  "tao",

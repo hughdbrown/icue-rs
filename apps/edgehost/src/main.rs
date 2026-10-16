@@ -66,6 +66,8 @@ fn main() -> Result<()> {
     };
     let store =
         Store::open(&root).with_context(|| format!("opening data folder {}", root.display()))?;
+    // The LLM Usage plugin reads llm-usage.toml from the same folder.
+    llm_usage::config::set_data_dir(root.clone());
 
     let event_loop = EventLoopBuilder::<AppEvent>::with_user_event().build();
     let menu_proxy = event_loop.create_proxy();

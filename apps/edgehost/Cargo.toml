@@ -13,6 +13,7 @@ clap.workspace = true
 edge-layout.workspace = true
 edge-store.workspace = true
 icuew-manifest.workspace = true
+llm-usage.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tao.workspace = true
