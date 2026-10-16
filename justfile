@@ -24,7 +24,7 @@ dist_dir := "dist"
 version := `grep -m1 '^version' Cargo.toml | cut -d'"' -f2`
 
 # Directories holding `node --test` suites (*.test.mjs).
-js_test_dirs := "crates/widget-runtime/shim apps/edgehost/ui examples/widgets/coin-ticker examples/widgets/git examples/widgets/piano examples/widgets/portfolio examples/widgets/warthunder-hud"
+js_test_dirs := "crates/widget-runtime/shim apps/edgehost/ui examples/widgets/coin-ticker examples/widgets/git examples/widgets/llm-usage examples/widgets/piano examples/widgets/portfolio examples/widgets/warthunder-hud"
 
 # ── Development ────────────────────────────────────────────
 
@@ -43,6 +43,18 @@ run-edgehost *args:
 # Run one widget, e.g. `just run-one examples/widgets/hello-edge --slot L`
 run-one widget *args:
     cargo run -p edgectl -- run-one {{ widget }} {{ args }}
+
+# LLM Usage: check what the widget will show, e.g. `just llm-usage --json`
+llm-usage *args:
+    cargo run -q -p edgectl -- llm-usage {{ args }}
+
+# LLM Usage: write the commented 0600 subscriptions file into the data folder
+llm-usage-init:
+    cargo run -q -p edgectl -- llm-usage init
+
+# LLM Usage: try the widget at slot M in a stand-in window
+run-llm-usage slot="M":
+    cargo run -p edgectl -- run-one examples/widgets/llm-usage --windowed --slot {{ slot }}
 
 # Build the API docs
 doc:
@@ -157,6 +169,12 @@ deploy-app: bundle
     ditto "{{ app_bundle }}" "$target"
     echo "Installed $target"
     echo "Launch it with: open \"$target\""
+
+# Install the LLM Usage widget into the data folder (the dashboard picks it up; place it with
+# `edgectl layout add dev.edgehost.llm-usage --slot M` or Configure Widgets…)
+deploy-llm-usage: deploy-cli
+    edgectl install --yes examples/widgets/llm-usage
+    edgectl llm-usage path
 
 # Remove the installed edgectl and EdgeHost.app (keeps the data folder)
 uninstall:

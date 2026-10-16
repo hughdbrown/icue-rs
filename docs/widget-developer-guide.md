@@ -289,7 +289,8 @@ Verified on a XENEON EDGE (macOS, 2026-10):
 
 ## 9. Plugins
 
-EdgeHost provides **`widgetbuilder.filesystemprovider:FileSystem:1.0`** built in. Any other plugin
+EdgeHost provides **`widgetbuilder.filesystemprovider:FileSystem:1.0`** and its own
+**`edgehost.llmusage:LlmUsage:1.0`** built in. Any other plugin
 can come from an installed **Rhai add-in**, including new namespaces such as
 `edgehost.coinprices:CoinPrices:1.0` (see [`addins.md`](addins.md)). For a plugin that nothing
 provides, `plugin<Module>_initialized` stays `false` and the facade is missing.
@@ -331,6 +332,29 @@ fs.watchPath("{Documents}/my-widget/status.txt");
 | Page reload | All watches are dropped; watch again on start |
 
 [`examples/widgets/git`](../examples/widgets/git) is a complete example.
+
+### LLM Usage
+
+EdgeHost's own plugin; iCUE does not have it. It reports the quota of the LLM subscriptions in
+`llm-usage.toml` (see [`llm-usage.md`](llm-usage.md)). No permissions are needed: the user's config
+file decides what is fetched, never the widget.
+
+```json
+"required_plugins": ["edgehost.llmusage:LlmUsage:1.0"]
+```
+
+```js
+const u = window.plugins.Llmusage;
+u.updated.connect((snapshot) => show(snapshot)); // on start, each poll, refresh() and reload
+u.snapshot().then((s) => s && show(s));          // last snapshot, or null; never waits
+u.refresh();                                     // fetch now (at most every 15 s)
+```
+
+A snapshot is `{generatedAt, configPath, configError, pollSecs, subscriptions[], suggestion}`. Each
+subscription has `{id, provider, label, plan, detail, status: "ok"|"stale"|"error", message,
+windows[], fetchedAt, blockedUntil, urgency}`. Each window has `{label, used (0–1), amount?,
+resetsAt, lengthSecs, pace?: {elapsed, ahead, runsOutAt?}}`. Timestamps are RFC 3339 strings.
+[`examples/widgets/llm-usage`](../examples/widgets/llm-usage) is the complete widget.
 
 Planned macOS support: links and basic sensors (CPU/GPU/memory load, best-effort temperatures) in
 v1; media in v1.5. Notifications, FPS, device actions and Stream Deck will report as unsupported.

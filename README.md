@@ -163,13 +163,17 @@ node --test crates/widget-runtime/shim/
 node --test examples/widgets/portfolio/
 node --test examples/widgets/git/
 node --test examples/widgets/coin-ticker/
+node --test examples/widgets/llm-usage/
 ```
+
+`just ci` runs all of these (and every widget suite) plus `cargo fmt --check`.
 
 | Path | Contents |
 |---|---|
 | `crates/icuew-manifest` | Parse `manifest.json`, `<head>` controls and groups, `translation.json` |
 | `crates/edge-layout` | Edge grid, S/M/L/XL slots, display selection |
-| `crates/edge-plugins` | Plugins behind `window.plugins`: File System built in, Rhai add-ins, path macros and grants |
+| `crates/edge-plugins` | Plugins behind `window.plugins`: File System and LLM Usage built in, Rhai add-ins, path macros and grants |
+| `crates/llm-usage` | LLM subscription quota: config, CLI-login credentials, per-service fetchers, pace and "use next" |
 | `crates/widget-runtime` | Injection shim, `icuew://` asset server, Edge surface and web views |
 | `apps/edgectl` | Developer CLI |
 | `examples/widgets/hello-edge` | Test widget that displays the injected globals |
@@ -178,10 +182,13 @@ node --test examples/widgets/coin-ticker/
 | `examples/widgets/piano` | Multi-touch piano with five synthesized voices |
 | `examples/widgets/portfolio` | Stock portfolio value, chart and holdings (Yahoo Finance) |
 | `examples/widgets/warthunder-hud` | War Thunder flight/vehicle telemetry, kill feed and chat |
+| `examples/widgets/llm-usage` | Quota left, reset times and pace of Claude, Codex, Gemini, Kimi and Ollama subscriptions |
+| `examples/llm-usage/llm-usage.example.toml` | Commented subscriptions file for the LLM Usage widget (`edgectl llm-usage init`) |
 | `examples/widgets/*/README.md` | Each widget's description, settings and an EdgeHost screenshot |
 | `examples/addins/dev.edgehost.coin-prices` | Sample Rhai add-in: Coinbase spot prices as `window.plugins.Coinprices` |
 | `docs/` | Spec, review, and research notes (reverse-engineering findings, API reference) |
 
 Writing a widget? Start with [`docs/widget-developer-guide.md`](docs/widget-developer-guide.md).
+LLM Usage setup: [`docs/llm-usage.md`](docs/llm-usage.md).
 Writing a data provider (add-in) in Rhai? See [`docs/addins.md`](docs/addins.md) and
 [`docs/addin-api.md`](docs/addin-api.md).
