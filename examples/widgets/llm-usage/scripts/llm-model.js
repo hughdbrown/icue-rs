@@ -133,7 +133,15 @@
 		return `Use ${sub.label} next: ${what}${when}`;
 	}
 
-	function subView(s, now, suggestedId) {
+	/** A window whose reset has passed since the snapshot has refilled (as llm_usage::pace::age). */
+	function aged(w, now) {
+		const reset = ms(w.resetsAt);
+		if (!Number.isFinite(reset) || reset > now) return w;
+		return { ...w, used: 0, resetsAt: null, amount: w.amount ? { ...w.amount, used: 0 } : w.amount };
+	}
+
+	function subView(raw, now, suggestedId) {
+		const s = { ...raw, windows: raw.windows.map((w) => aged(w, now)) };
 		return {
 			id: s.id,
 			label: s.label,
@@ -175,5 +183,5 @@
 		};
 	}
 
-	root.LlmModel = { span, clock, elapsed, state, projectedWaste, runsOutAt, mostUrgent, view };
+	root.LlmModel = { span, clock, elapsed, state, projectedWaste, runsOutAt, mostUrgent, aged, view };
 })(typeof window !== "undefined" ? window : globalThis);

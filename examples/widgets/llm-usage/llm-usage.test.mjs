@@ -136,6 +136,16 @@ test("view: cards, suggestion and notes", () => {
 	assert.equal(M.view(snapshot([sub("kimi", [win("5 h", 1, H, FIVE)])]), NOW).suggestion, "Every subscription is used up for now");
 });
 
+test("windows that reset since the snapshot show as refilled", () => {
+	const M = model();
+	const v = plain(M.view(snapshot([sub("kimi", [win("5 h", 1, -60 * 1000, FIVE)])]), NOW));
+	assert.equal(v.subs[0].windows[0].left, "100% left");
+	assert.equal(v.subs[0].windows[0].reset, "not started");
+	assert.equal(v.subs[0].note.text, "", "no 'back in 0s'");
+	const money = M.aged(win("Month", 0.4, -1, 100, { amount: { used: 40, limit: 100, unit: "USD" } }), NOW);
+	assert.equal(money.amount.used, 0);
+});
+
 // ── Widget wiring with a fake DOM and a fake LlmUsage plugin ──
 
 function widgetEnv({ withPlugin = true, initial = null } = {}) {
