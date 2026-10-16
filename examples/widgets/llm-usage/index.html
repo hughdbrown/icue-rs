@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>tr('LLM Usage')</title>
+		<link rel="icon" type="image/svg+xml" href="resources/icon.svg" />
+		<meta name="x-icue-property" content="textColor" data-label="tr('Text Color')" data-type="color" data-default="'#E8ECF2'" />
+		<meta name="x-icue-property" content="accentColor" data-label="tr('Accent Color')" data-type="color" data-default="'#7C9CFF'" />
+		<meta name="x-icue-property" content="backgroundColor" data-label="tr('Background Color')" data-type="color" data-default="'#14161B'" />
+		<script type="application/json" id="x-icue-groups">
+			[
+				{
+					"title": "tr('Appearance')",
+					"properties": ["textColor", "accentColor", "backgroundColor"],
+					"info": "tr('Subscriptions and their keys are set in llm-usage.toml; run edgectl llm-usage init.')"
+				}
+			]
+		</script>
+		<link rel="stylesheet" href="styles/llm-usage.css" />
+	</head>
+	<body>
+		<main id="usage" hidden>
+			<header id="top">
+				<div id="suggestion"></div>
+				<span id="updated"></span>
+				<button id="refresh" type="button" aria-label="Refresh">↻</button>
+			</header>
+			<section id="subs"></section>
+		</main>
+		<section id="message">
+			<div id="message-title">Starting…</div>
+			<div id="message-detail"></div>
+		</section>
+		<script src="scripts/llm-model.js"></script>
+		<script src="scripts/llm-usage.js"></script>
+	</body>
+</html>

@@ -1,0 +1,315 @@
+:root {
+	--fg: #e8ecf2;
+	--accent: #7c9cff;
+	--bg: #14161b;
+	--on: #2ecc71;
+	--ahead: #f5b041;
+	--out: #e74c3c;
+	--behind: var(--accent);
+	--muted: color-mix(in srgb, var(--fg) 55%, transparent);
+	--line: color-mix(in srgb, var(--fg) 12%, transparent);
+	--card: color-mix(in srgb, var(--fg) 5%, var(--bg));
+}
+* {
+	box-sizing: border-box;
+}
+html,
+body {
+	margin: 0;
+	height: 100%;
+	overflow: hidden;
+	background: var(--bg);
+	color: var(--fg);
+	font: 20px/1.25 -apple-system, "Segoe UI", system-ui, sans-serif;
+	-webkit-user-select: none;
+	user-select: none;
+}
+#usage {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	padding: 16px 20px;
+	gap: 12px;
+}
+#usage[hidden],
+#message[hidden] {
+	display: none;
+}
+
+/* ── Header: suggestion, update time, refresh ── */
+#top {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	min-height: 56px;
+}
+#suggestion {
+	flex: 1;
+	min-width: 0;
+	font-size: 21px;
+	font-weight: 600;
+	color: var(--accent);
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	overflow: hidden;
+}
+#updated {
+	color: var(--muted);
+	font-size: 16px;
+	white-space: nowrap;
+}
+#refresh {
+	width: 56px;
+	height: 56px;
+	border: 1px solid var(--line);
+	border-radius: 14px;
+	background: var(--card);
+	color: var(--fg);
+	font-size: 30px;
+	line-height: 1;
+	cursor: pointer;
+}
+#refresh:active {
+	background: var(--line);
+}
+#refresh.spinning {
+	animation: spin 1.2s linear;
+}
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+/* ── Subscription cards share the height ── */
+#subs {
+	flex: 1;
+	min-height: 0;
+	display: grid;
+	grid-auto-rows: minmax(0, auto);
+	align-content: start;
+	gap: 10px;
+	overflow: hidden;
+}
+.sub {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	min-height: 0;
+	overflow: hidden;
+	padding: 10px 16px;
+	border-radius: 12px;
+	background: var(--card);
+	border: 2px solid transparent;
+}
+.sub.suggested {
+	border-color: var(--accent);
+}
+.sub > header {
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	white-space: nowrap;
+	overflow: hidden;
+}
+.name {
+	font-size: 22px;
+	font-weight: 700;
+}
+.plan,
+.detail {
+	color: var(--muted);
+	font-size: 16px;
+}
+.flag,
+.status {
+	font-size: 13px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	padding: 2px 8px;
+	border-radius: 6px;
+}
+.flag {
+	background: var(--accent);
+	color: var(--bg);
+}
+.status {
+	border: 1px solid var(--muted);
+	color: var(--muted);
+}
+.status-error .status {
+	border-color: var(--out);
+	color: var(--out);
+}
+.status-stale .win {
+	opacity: 0.6;
+}
+.msg {
+	font-size: 15px;
+	color: var(--out);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.status-stale .msg {
+	color: var(--muted);
+}
+
+/* ── One quota window: label | bar with pace tick | left | reset ── */
+.win {
+	display: grid;
+	grid-template-columns: 56px minmax(0, 1fr) 112px 196px;
+	align-items: center;
+	gap: 12px;
+	font-size: 17px;
+}
+.wlabel {
+	color: var(--muted);
+}
+.bar {
+	position: relative;
+	height: 14px;
+	border-radius: 7px;
+	background: var(--line);
+}
+.fill {
+	height: 100%;
+	border-radius: 7px;
+	background: var(--on);
+}
+/* Where straight-line use would be now: fill past it runs out early, short of it is left over. */
+.tick {
+	position: absolute;
+	top: -5px;
+	bottom: -5px;
+	width: 3px;
+	margin-left: -1.5px;
+	border-radius: 2px;
+	background: var(--fg);
+}
+.state-ahead .fill {
+	background: var(--ahead);
+}
+.state-behind .fill {
+	background: var(--behind);
+}
+.state-out .fill {
+	background: var(--out);
+}
+.state-idle .fill {
+	background: var(--muted);
+}
+.left {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+	font-weight: 600;
+}
+.reset {
+	color: var(--muted);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+.note {
+	font-size: 15px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.note-ahead {
+	color: var(--ahead);
+}
+.note-behind {
+	color: var(--behind);
+}
+.note-out {
+	color: var(--out);
+}
+
+/* ── Message (setup, errors) ── */
+#message {
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	height: 100%;
+	padding: 32px;
+	gap: 14px;
+}
+#message-title {
+	font-size: 32px;
+	font-weight: 700;
+}
+#message-detail {
+	color: var(--muted);
+	font-size: 20px;
+	-webkit-user-select: text;
+	user-select: text;
+	overflow-wrap: anywhere;
+}
+
+/* ── Small (S): short and wide; drop notes, messages and third windows ── */
+@media (max-height: 420px) {
+	#usage {
+		padding: 10px 14px;
+		gap: 6px;
+	}
+	#top {
+		min-height: 48px;
+	}
+	#suggestion {
+		font-size: 18px;
+	}
+	#refresh {
+		width: 48px;
+		height: 48px;
+		font-size: 26px;
+	}
+	#subs {
+		gap: 4px;
+	}
+	.sub {
+		flex-direction: row;
+		align-items: center;
+		padding: 2px 10px;
+		gap: 18px;
+	}
+	.sub > header {
+		flex: 0 0 110px;
+	}
+	.name {
+		font-size: 17px;
+	}
+	.plan,
+	.detail,
+	.flag,
+	.status,
+	.msg,
+	.note,
+	.win-extra {
+		display: none;
+	}
+	.win {
+		flex: 1;
+		grid-template-columns: 46px minmax(0, 1fr) 84px;
+		font-size: 14px;
+		gap: 8px;
+		white-space: nowrap;
+	}
+	.win .reset {
+		display: none;
+	}
+	.bar {
+		height: 10px;
+	}
+}
+
+/* ── Large (L, XL): cards in two columns ── */
+@media (min-width: 1500px) and (min-height: 421px) {
+	#subs {
+		grid-template-columns: 1fr 1fr;
+	}
+	#subs.count-1 {
+		grid-template-columns: 1fr;
+	}
+}

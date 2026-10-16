@@ -1,0 +1,14 @@
+{
+	"author": "EdgeHost",
+	"id": "dev.edgehost.llm-usage",
+	"name": "LLM Usage",
+	"description": "Quota left, reset times and pace of your LLM subscriptions (Claude, Codex, Gemini, Kimi, Ollama), and which to use next.",
+	"version": "0.1.0",
+	"preview_icon": "resources/icon.svg",
+	"min_app_version": "5.47",
+	"min_framework_version": "1.0.0",
+	"os": [{ "platform": "windows" }, { "platform": "mac" }],
+	"supported_devices": [{ "type": "dashboard_lcd" }],
+	"interactive": true,
+	"required_plugins": ["edgehost.llmusage:LlmUsage:1.0"]
+}

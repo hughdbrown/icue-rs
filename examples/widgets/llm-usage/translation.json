@@ -1,0 +1,12 @@
+{
+	"en": {
+		"translation": {
+			"LLM Usage": "LLM Usage",
+			"Appearance": "Appearance",
+			"Text Color": "Text Color",
+			"Accent Color": "Accent Color",
+			"Background Color": "Background Color",
+			"Subscriptions and their keys are set in llm-usage.toml; run edgectl llm-usage init.": "Subscriptions and their keys are set in llm-usage.toml; run edgectl llm-usage init."
+		}
+	}
+}
