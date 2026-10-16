@@ -5,11 +5,13 @@
 //! the page to collect ([`PluginHost::wait_events`]). The transport between the page and the host
 //! lives in `widget-runtime`; nothing here depends on a web view.
 //!
-//! Built in: `widgetbuilder.filesystemprovider:FileSystem:1.0` ([`filesystem`]). Any other plugin
+//! Built in: `widgetbuilder.filesystemprovider:FileSystem:1.0` ([`filesystem`]) and
+//! `edgehost.llmusage:LlmUsage:1.0` ([`llm_usage`]). Any other plugin
 //! can come from a Rhai add-in ([`addin`], [`rhai_provider`]); built-ins win over add-ins.
 
 pub mod addin;
 pub mod filesystem;
+pub mod llm_usage;
 pub mod net;
 pub mod paths;
 pub mod rhai_provider;
@@ -24,6 +26,7 @@ use serde_json::Value;
 
 use crate::addin::Registry;
 use crate::filesystem::FileSystem;
+use crate::llm_usage::LlmUsage;
 use crate::paths::{Grants, Macros};
 use crate::rhai_provider::RhaiProvider;
 
@@ -95,7 +98,7 @@ impl Descriptor {
     }
 }
 
-const PROVIDERS: &[Descriptor] = &[filesystem::DESCRIPTOR];
+const PROVIDERS: &[Descriptor] = &[filesystem::DESCRIPTOR, llm_usage::DESCRIPTOR];
 
 /// The built-in provider for `wanted`, if any. Matches module and name only, so an add-in cannot
 /// provide another version of a built-in plugin.
@@ -220,6 +223,11 @@ impl PluginHost {
                 providers.insert(
                     facade.name,
                     Box::new(FileSystem::new(ctx.macros.clone(), grants, emit)),
+                );
+            } else if wanted.module == llm_usage::DESCRIPTOR.module {
+                providers.insert(
+                    facade.name,
+                    Box::new(LlmUsage::new(::llm_usage::Service::shared(), emit)),
                 );
             } else if let Some(addin) = ctx.addins.find(wanted) {
                 match RhaiProvider::start(Arc::clone(addin), emit) {

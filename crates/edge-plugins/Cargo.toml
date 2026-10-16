@@ -9,6 +9,7 @@ version.workspace = true
 
 [dependencies]
 icuew-manifest.workspace = true
+llm-usage.workspace = true
 notify = "8"
 rhai = { version = "1.26", features = ["serde"] }
 serde.workspace = true

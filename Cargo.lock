@@ -657,6 +657,7 @@ name = "edge-plugins"
 version = "0.1.0"
 dependencies = [
  "icuew-manifest",
+ "llm-usage",
  "notify",
  "rhai",
  "serde",
@@ -693,6 +694,8 @@ dependencies = [
  "edge-plugins",
  "edge-store",
  "icuew-manifest",
+ "jiff",
+ "llm-usage",
  "serde_json",
  "tao",
  "tempfile",
