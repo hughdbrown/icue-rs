@@ -175,6 +175,10 @@ node --test examples/widgets/coin-ticker/
 | `examples/widgets/hello-edge` | Test widget that displays the injected globals |
 | `examples/widgets/git` | Branch, upstream sync and recent activity of a local repo (File System plugin) |
 | `examples/widgets/coin-ticker` | Live crypto prices from the sample add-in |
+| `examples/widgets/piano` | Multi-touch piano with five synthesized voices |
+| `examples/widgets/portfolio` | Stock portfolio value, chart and holdings (Yahoo Finance) |
+| `examples/widgets/warthunder-hud` | War Thunder flight/vehicle telemetry, kill feed and chat |
+| `examples/widgets/*/README.md` | Each widget's description, settings and an EdgeHost screenshot |
 | `examples/addins/dev.edgehost.coin-prices` | Sample Rhai add-in: Coinbase spot prices as `window.plugins.Coinprices` |
 | `docs/` | Spec, review, and research notes (reverse-engineering findings, API reference) |
 
