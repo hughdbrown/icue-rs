@@ -48,8 +48,8 @@ fn time_left(w: &Window, now: Timestamp) -> f64 {
     pace(w, now).map_or(1.0, |p| 1.0 - p.elapsed)
 }
 
-/// When `windows` stop blocking: the latest reset among used-up windows. `None` if none is used
-/// up; also `None` from a used-up window without a reset time.
+/// When `windows` stop blocking: the latest reset among used-up windows that report one. `None`
+/// when no window is used up, or when none of the used-up ones reports a reset time.
 #[must_use]
 pub fn blocked_until(windows: &[Window]) -> Option<Timestamp> {
     windows

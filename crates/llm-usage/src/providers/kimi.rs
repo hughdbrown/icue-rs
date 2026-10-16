@@ -36,8 +36,8 @@ pub fn request(base_url: &str, api_key: &str) -> Request {
 /// # Errors
 ///
 /// Error status or unknown shape.
-pub fn finish(r: &Response) -> Result<Usage, FetchError> {
-    parse(&json_body("https://api.kimi.com", r, SIGN_IN)?)
+pub fn finish(base_url: &str, r: &Response) -> Result<Usage, FetchError> {
+    parse(&json_body(base_url, r, SIGN_IN)?)
 }
 
 /// Fraction used of a `{limit, used, remaining}` object.

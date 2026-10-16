@@ -3,10 +3,13 @@
 //! Both rotate refresh tokens, so a refresh here must be written back or the CLI's saved login
 //! stops working. The rules:
 //! - use the stored access token while it is valid;
-//! - when it has expired (or the service rejects it), take [`REFRESH_LOCK`], **re-read** the store
-//!   (the CLI may have refreshed it meanwhile), and only then refresh;
+//! - when it has expired (or the service rejects it), take [`REFRESH_LOCK`] and an advisory file
+//!   lock beside the store (so `edgectl` and EdgeHost do not refresh at once), **re-read** the
+//!   store (the CLI may have refreshed it meanwhile), and only then refresh;
 //! - write back the whole stored document with just the token fields replaced, so fields this
-//!   crate does not know survive.
+//!   crate does not know survive;
+//! - if that write fails, keep the new document in memory, use it, and retry the write on the next
+//!   read: the old refresh token is already spent.
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -22,6 +25,9 @@ use crate::http::{Body, Http, Request, host_of};
 
 /// One refresh at a time in this process, so two widgets cannot spend the same refresh token.
 pub static REFRESH_LOCK: Mutex<()> = Mutex::new(());
+
+/// Refreshed documents that could not be written yet: (store description, document).
+static UNSAVED: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
 
 /// Refresh this long before the stored expiry.
 const EXPIRY_MARGIN_MS: i64 = 60_000;
@@ -44,6 +50,72 @@ pub trait SecretStore: Send + Sync {
 
     /// Where it is, for messages.
     fn describe(&self) -> String;
+
+    /// The advisory lock file that serialises refreshes across processes.
+    fn lock_path(&self) -> PathBuf;
+
+    /// Fail early, before a refresh spends the refresh token, when the store cannot be written.
+    ///
+    /// # Errors
+    ///
+    /// The store is read-only.
+    fn check_writable(&self) -> Result<(), FetchError> {
+        Ok(())
+    }
+}
+
+/// The stored document, preferring one refreshed earlier that could not be saved (whose save is
+/// retried now).
+fn read_doc(store: &dyn SecretStore) -> Result<Option<String>, FetchError> {
+    let key = store.describe();
+    let mut unsaved = UNSAVED.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(i) = unsaved.iter().position(|(k, _)| *k == key) {
+        let doc = unsaved.get(i).map(|(_, d)| d.clone()).unwrap_or_default();
+        if store.write(&doc).is_ok() {
+            unsaved.remove(i);
+        }
+        return Ok(Some(doc));
+    }
+    drop(unsaved);
+    store.read()
+}
+
+/// Write a refreshed `doc`; on failure keep it for [`read_doc`] and report it on stderr, since the
+/// refresh already happened and the new tokens are the only working ones.
+fn save_doc(store: &dyn SecretStore, doc: &str) {
+    if let Err(e) = store.write(doc) {
+        eprintln!(
+            "llm-usage: refreshed the login but could not save it to {} ({e}); will retry",
+            store.describe()
+        );
+        let key = store.describe();
+        let mut unsaved = UNSAVED.lock().unwrap_or_else(PoisonError::into_inner);
+        unsaved.retain(|(k, _)| *k != key);
+        unsaved.push((key, doc.to_owned()));
+    }
+}
+
+/// Held while refreshing: this process's [`REFRESH_LOCK`] and the store's advisory file lock.
+struct RefreshGuard {
+    _thread: std::sync::MutexGuard<'static, ()>,
+    _file: std::fs::File,
+}
+
+fn refresh_guard(store: &dyn SecretStore) -> Result<RefreshGuard, FetchError> {
+    let thread = REFRESH_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+    let path = store.lock_path();
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .map_err(|e| FetchError::Store(format!("opening lock {}: {e}", path.display())))?;
+    file.lock()
+        .map_err(|e| FetchError::Store(format!("locking {}: {e}", path.display())))?;
+    Ok(RefreshGuard {
+        _thread: thread,
+        _file: file,
+    })
 }
 
 /// A file, replaced atomically and kept at mode 0600.
@@ -69,16 +141,34 @@ impl SecretStore for FileStore {
     fn describe(&self) -> String {
         self.0.display().to_string()
     }
+
+    fn lock_path(&self) -> PathBuf {
+        sibling(&self.0, "edgehost-lock")
+    }
+
+    fn check_writable(&self) -> Result<(), FetchError> {
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&self.0)
+            .map(drop)
+            .map_err(|e| FetchError::Store(format!("{} is not writable: {e}", self.0.display())))
+    }
 }
 
-/// Write `value` to a sibling temporary file with mode 0600, then rename it over `path`.
-fn write_private(path: &Path, value: &str) -> std::io::Result<()> {
+/// `dir/.name.<suffix>` beside `path`.
+fn sibling(path: &Path, suffix: &str) -> PathBuf {
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
     let name = path.file_name().map_or_else(
         || "credentials".into(),
         |n| n.to_string_lossy().into_owned(),
     );
-    let tmp = dir.join(format!(".{name}.edgehost-tmp"));
+    dir.join(format!(".{name}.{suffix}"))
+}
+
+/// Write `value` to a sibling temporary file with mode 0600, then rename it over `path`.
+fn write_private(path: &Path, value: &str) -> std::io::Result<()> {
+    // Per process, so two processes writing at once cannot interleave in one temp file.
+    let tmp = sibling(path, &format!("edgehost-tmp-{}", std::process::id()));
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -158,51 +248,36 @@ impl SecretStore for KeychainStore {
                 std::env::var("USER").map_err(|_| FetchError::Store("$USER is not set".into()))?
             }
         };
-        // `security -i` reads the command from stdin, so the secret never appears in `ps`; `-X`
-        // takes it as hex, so it needs no quoting.
-        let hex = value
-            .bytes()
-            .fold(String::with_capacity(value.len() * 2), |mut s, b| {
-                use std::fmt::Write as _;
-                let _ = write!(s, "{b:02x}");
-                s
-            });
-        let quote = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""));
-        let command = format!(
-            "add-generic-password -U -a {} -s {} -X {hex}\n",
-            quote(&account),
-            quote(&self.service)
-        );
-        let mut child = Command::new(SECURITY)
-            .arg("-i")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| FetchError::Store(format!("running {SECURITY}: {e}")))?;
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin
-                .write_all(command.as_bytes())
-                .map_err(|e| FetchError::Store(format!("writing to {SECURITY}: {e}")))?;
-        }
-        let out = child
-            .wait_with_output()
-            .map_err(|e| FetchError::Store(format!("running {SECURITY}: {e}")))?;
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        if out.status.success() && stderr.trim().is_empty() {
-            Ok(())
-        } else {
-            Err(FetchError::Store(format!(
-                "updating Keychain item {:?}: {}",
-                self.service,
-                stderr.trim()
-            )))
-        }
+        keychain_set(&self.service, &account, value.as_bytes())
     }
 
     fn describe(&self) -> String {
         format!("Keychain item {:?}", self.service)
     }
+
+    fn lock_path(&self) -> PathBuf {
+        let name: String = self
+            .service
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        std::env::temp_dir().join(format!("edgehost-{name}.lock"))
+    }
+}
+
+/// Create or update a generic password through the Security framework. (`security -i` cuts input
+/// lines at about 4 KB, which a hex-encoded credentials document easily exceeds.)
+#[cfg(target_os = "macos")]
+fn keychain_set(service: &str, account: &str, value: &[u8]) -> Result<(), FetchError> {
+    security_framework::passwords::set_generic_password(service, account, value)
+        .map_err(|e| FetchError::Store(format!("updating Keychain item {service:?}: {e}")))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn keychain_set(service: &str, _: &str, _: &[u8]) -> Result<(), FetchError> {
+    Err(FetchError::Store(format!(
+        "Keychain item {service:?}: there is no Keychain on this system"
+    )))
 }
 
 /// Where Claude Code keeps its login on this machine: the Keychain on macOS;
@@ -266,7 +341,7 @@ fn claude_doc(store: &dyn SecretStore) -> Result<ClaudeDoc, FetchError> {
             store.describe()
         ))
     };
-    let text = store.read()?.ok_or_else(missing)?;
+    let text = read_doc(store)?.ok_or_else(missing)?;
     let doc: Value = serde_json::from_str(&text)
         .map_err(|e| FetchError::Store(format!("{} is not JSON: {e}", store.describe())))?;
     let oauth = doc.get("claudeAiOauth").ok_or_else(missing)?;
@@ -314,7 +389,7 @@ pub fn claude_token(
             plan: d.plan,
         });
     }
-    let _guard = REFRESH_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+    let _guard = refresh_guard(store)?;
     let fresh = claude_doc(store)?;
     if fresh.access != d.access && is_valid(fresh.expires_at_ms, now) {
         // Someone (the CLI, another widget) refreshed it meanwhile.
@@ -327,6 +402,7 @@ pub fn claude_token(
     let refresh = fresh.refresh.clone().ok_or_else(|| {
         FetchError::SignInAgain(format!("Claude Code's login has expired; {CLAUDE_SIGN_IN}"))
     })?;
+    store.check_writable()?;
     let body = Body::Form(vec![
         ("grant_type".into(), "refresh_token".into()),
         ("refresh_token".into(), refresh),
@@ -342,13 +418,19 @@ pub fn claude_token(
     if let Some(r) = tokens.refresh {
         oauth.insert("refreshToken".into(), r.into());
     }
-    if let Some(secs) = tokens.expires_in {
-        oauth.insert(
-            "expiresAt".into(),
-            (now.as_millisecond() + secs * 1000).into(),
-        );
+    match tokens.expires_in {
+        Some(secs) => {
+            oauth.insert(
+                "expiresAt".into(),
+                (now.as_millisecond() + secs * 1000).into(),
+            );
+        }
+        // The old expiry has passed; leaving it would refresh again on every poll.
+        None => {
+            oauth.remove("expiresAt");
+        }
     }
-    store.write(&doc.to_string())?;
+    save_doc(store, &doc.to_string());
     Ok(Token {
         access: tokens.access,
         account_id: None,
@@ -376,7 +458,7 @@ fn codex_doc(store: &dyn SecretStore) -> Result<CodexDoc, FetchError> {
             store.describe()
         ))
     };
-    let text = store.read()?.ok_or_else(missing)?;
+    let text = read_doc(store)?.ok_or_else(missing)?;
     let doc: Value = serde_json::from_str(&text)
         .map_err(|e| FetchError::Store(format!("{} is not JSON: {e}", store.describe())))?;
     let tokens = doc
@@ -446,7 +528,7 @@ pub fn codex_token(
     if want == Want::Valid && is_valid(jwt_expiry_ms(&d.access), now) {
         return Ok(token(d));
     }
-    let _guard = REFRESH_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+    let _guard = refresh_guard(store)?;
     let fresh = codex_doc(store)?;
     if fresh.access != d.access && is_valid(jwt_expiry_ms(&fresh.access), now) {
         return Ok(token(fresh));
@@ -454,6 +536,7 @@ pub fn codex_token(
     let refresh = fresh.refresh.clone().ok_or_else(|| {
         FetchError::SignInAgain(format!("Codex's login has expired; {CODEX_SIGN_IN}"))
     })?;
+    store.check_writable()?;
     let body = Body::Json(json!({
         "grant_type": "refresh_token",
         "client_id": CODEX_CLIENT_ID,
@@ -478,7 +561,7 @@ pub fn codex_token(
     }
     let text = serde_json::to_string_pretty(&doc)
         .map_err(|e| FetchError::Store(format!("encoding auth.json: {e}")))?;
-    store.write(&text)?;
+    save_doc(store, &text);
     Ok(Token {
         access: tokens.access,
         account_id: Some(fresh.account_id),
@@ -486,7 +569,28 @@ pub fn codex_token(
     })
 }
 
-// ── Shared ──────────────────────────────────────────────────────────────────────────────────
+// ── Shared ──────────────────────────────────────────────────────────────────────────────────────
+
+/// Access tokens that were just refreshed and still got 401: refreshing again would not help.
+static REJECTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Remember that `access`, fresh from a refresh, was still rejected.
+pub(crate) fn mark_rejected(access: &str) {
+    let mut r = REJECTED.lock().unwrap_or_else(PoisonError::into_inner);
+    if r.len() >= 16 {
+        r.remove(0);
+    }
+    r.push(access.to_owned());
+}
+
+/// Whether `access` was refreshed and still rejected before.
+pub(crate) fn was_rejected(access: &str) -> bool {
+    REJECTED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .any(|a| a == access)
+}
 
 struct Refreshed {
     access: String,
@@ -529,22 +633,32 @@ pub fn capitalise(s: &str) -> String {
 
 #[cfg(test)]
 pub(crate) mod fake {
+    use std::path::PathBuf;
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::SecretStore;
     use crate::error::FetchError;
 
-    /// An in-memory store that counts writes.
+    /// An in-memory store that counts writes and can refuse them.
     pub struct MemStore {
         pub value: Mutex<Option<String>>,
         pub writes: Mutex<usize>,
+        pub fail_writes: Mutex<bool>,
+        name: String,
+        lock: tempfile::NamedTempFile,
     }
 
     impl MemStore {
         pub fn new(v: Option<&str>) -> Self {
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
             Self {
                 value: Mutex::new(v.map(str::to_owned)),
                 writes: Mutex::new(0),
+                fail_writes: Mutex::new(false),
+                // Unique: the unsaved-document cache is keyed by the description.
+                name: format!("memory-{}", NEXT.fetch_add(1, Ordering::Relaxed)),
+                lock: tempfile::NamedTempFile::new().unwrap(),
             }
         }
 
@@ -559,13 +673,20 @@ pub(crate) mod fake {
         }
 
         fn write(&self, value: &str) -> Result<(), FetchError> {
+            if *self.fail_writes.lock().unwrap() {
+                return Err(FetchError::Store("read-only".into()));
+            }
             *self.value.lock().unwrap() = Some(value.to_owned());
             *self.writes.lock().unwrap() += 1;
             Ok(())
         }
 
         fn describe(&self) -> String {
-            "memory".into()
+            self.name.clone()
+        }
+
+        fn lock_path(&self) -> PathBuf {
+            self.lock.path().to_path_buf()
         }
     }
 }
@@ -641,6 +762,85 @@ mod tests {
         let http = FakeHttp::default().reply(200, r#"{"access_token":"at-2"}"#);
         claude_token(&store, &http, Want::Valid, now()).unwrap();
         assert_eq!(store.json()["claudeAiOauth"]["refreshToken"], "rt-old");
+    }
+
+    #[test]
+    fn claude_without_expires_in_drops_the_stale_expiry() {
+        let store = MemStore::new(Some(&claude_json("at-1", 1)));
+        let http = FakeHttp::default().reply(200, r#"{"access_token":"at-2"}"#);
+        claude_token(&store, &http, Want::Valid, now()).unwrap();
+        assert!(store.json()["claudeAiOauth"].get("expiresAt").is_none());
+        // Valid from now on (until a 401), so no refresh on the next poll.
+        let t = claude_token(&store, &FakeHttp::default(), Want::Valid, now()).unwrap();
+        assert_eq!(t.access, "at-2");
+    }
+
+    #[test]
+    fn a_failed_save_keeps_the_refreshed_login_and_retries() {
+        let store = MemStore::new(Some(&claude_json("at-1", 0)));
+        *store.fail_writes.lock().unwrap() = true;
+        let http = FakeHttp::default().reply(
+            200,
+            r#"{"access_token":"at-2","refresh_token":"rt-2","expires_in":3600}"#,
+        );
+        assert_eq!(
+            claude_token(&store, &http, Want::Valid, now())
+                .unwrap()
+                .access,
+            "at-2"
+        );
+        assert_eq!(
+            store.json()["claudeAiOauth"]["accessToken"],
+            "at-1",
+            "not saved yet"
+        );
+        // Next poll: uses the unsaved login without refreshing (no scripted reply would fail).
+        let t = claude_token(&store, &FakeHttp::default(), Want::Valid, now()).unwrap();
+        assert_eq!(t.access, "at-2");
+        // Once the store accepts writes, the retry saves it.
+        *store.fail_writes.lock().unwrap() = false;
+        claude_token(&store, &FakeHttp::default(), Want::Valid, now()).unwrap();
+        assert_eq!(store.json()["claudeAiOauth"]["refreshToken"], "rt-2");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_read_only_file_is_not_refreshed() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.json");
+        let expired = jwt(&json!({"exp": now().as_second() - 10}));
+        std::fs::write(&path, codex_json(&expired)).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o400)).unwrap();
+        let http = FakeHttp::default();
+        let err = codex_token(&FileStore(path), &http, Want::Valid, now()).unwrap_err();
+        assert!(err.to_string().contains("not writable"), "{err}");
+        assert_eq!(http.urls(), Vec::<String>::new(), "refresh token not spent");
+    }
+
+    /// Writes, reads back and deletes a throwaway 6 KB Keychain item. Run by hand on macOS:
+    /// `cargo test -p llm-usage keychain_round_trip -- --ignored`.
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "touches the login Keychain"]
+    fn keychain_round_trip_of_a_large_item() {
+        use security_framework::passwords::{delete_generic_password, get_generic_password};
+        let service = "EdgeHost llm-usage test item";
+        let account = std::env::var("USER").unwrap();
+        let store = KeychainStore {
+            service: service.into(),
+        };
+        let big = json!({"claudeAiOauth": {"accessToken": "x".repeat(6000)}}).to_string();
+        store.write(&big).unwrap();
+        // Read back through the framework: this test binary created the item, so `security`
+        // reading it would raise an access dialog.
+        assert_eq!(
+            get_generic_password(service, &account).unwrap(),
+            big.as_bytes()
+        );
+        store.write("{}").unwrap();
+        assert_eq!(get_generic_password(service, &account).unwrap(), b"{}");
+        delete_generic_password(service, &account).unwrap();
     }
 
     #[test]

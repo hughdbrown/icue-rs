@@ -117,16 +117,23 @@ looks, or the CLI's login breaks. EdgeHost:
 
 1. uses the stored access token while it is valid (with a 60 s margin), and refreshes only when it
    has expired or the service answers 401;
-2. takes a process-wide lock, then **re-reads** the store. If the CLI or another widget refreshed
-   it meanwhile, EdgeHost uses that token;
+2. checks the store is writable, takes a lock (in-process, plus an advisory file lock beside the
+   store so `edgectl llm-usage` and EdgeHost never refresh at once), then **re-reads** the store.
+   If the CLI or another widget refreshed it meanwhile, EdgeHost uses that token;
 3. refreshes once (`platform.claude.com/v1/oauth/token`, `auth.openai.com/oauth/token`);
 4. writes back the whole stored document with only the token fields changed:
-   - the Keychain through `security -i`, so the secret never appears in `ps`;
-   - `auth.json` atomically at mode 600.
+   - the Keychain through the Security framework. The first time, macOS asks whether EdgeHost (or
+     `edgectl`) may change "Claude Code-credentials"; choose **Always Allow**. `security -i` was
+     tried first and rejected: it cuts input lines at about 4 KB, and Claude Code's item, which
+     also holds MCP logins, is larger than that once hex-encoded;
+   - `auth.json` atomically at mode 600, through a per-process temporary file.
+5. if the write fails anyway, keeps the new document in memory, uses it, and retries the write on
+   every poll, since the old refresh token is already spent.
 
-A refused refresh (`invalid_grant`, `refresh_token_reused`) is reported as "sign in again" and
-nothing is written. A race with the CLI refreshing at the same instant cannot be ruled out, because
-there is no lock the CLI also honours. If it happens, one side gets "sign in again" and a fresh
+A token that was just refreshed and is still rejected is not refreshed again on later polls; the
+widget shows "sign in again" instead. A refused refresh (`invalid_grant`, `refresh_token_reused`) is reported as "sign in again" and
+nothing is written. A race with the CLI itself refreshing at the same instant cannot be ruled out,
+because the CLIs do not take EdgeHost's lock. If it happens, one side gets "sign in again" and a fresh
 `claude` / `codex login` fixes it. Tokens given in the config are never refreshed.
 
 ## Pace and "use next"

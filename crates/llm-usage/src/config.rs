@@ -147,13 +147,18 @@ pub enum ConfigError {
         /// The cause.
         source: std::io::Error,
     },
-    /// Not valid TOML, or unknown keys.
-    #[error("{}: {source}", path.display())]
+    /// Not valid TOML, or unknown keys. Only the reason and position are kept: the parser's own
+    /// message quotes the offending line, which may hold a secret.
+    #[error("{}:{line}:{column}: {message}", path.display())]
     Syntax {
         /// The file.
         path: PathBuf,
-        /// The cause.
-        source: Box<toml::de::Error>,
+        /// 1-based line.
+        line: usize,
+        /// 1-based column.
+        column: usize,
+        /// The reason, without the line's text.
+        message: String,
     },
     /// A `[[subscription]]` entry is incomplete or contradictory.
     #[error("{}: subscription {index} ({provider}): {reason}", path.display())]
@@ -227,9 +232,10 @@ impl RawEntry {
                 .ok_or_else(|| format!("`{key}` is required"))
         };
         Ok(match self.provider {
-            ProviderKind::Claude => self
-                .access_token
-                .map_or(Source::ClaudeCode, Source::ClaudeToken),
+            ProviderKind::Claude => match self.access_token {
+                None => Source::ClaudeCode,
+                token => Source::ClaudeToken(required(token, "access_token")?),
+            },
             ProviderKind::Codex => match (self.access_token, self.account_id, self.auth_file) {
                 (Some(access_token), Some(account_id), None) => Source::CodexToken {
                     access_token,
@@ -248,15 +254,23 @@ impl RawEntry {
                 }
             },
             ProviderKind::Gemini => Source::GeminiCookie(required(self.cookie, "cookie")?),
-            ProviderKind::Kimi => Source::Kimi {
-                api_key: required(self.api_key, "api_key")?,
-                base_url: self
+            ProviderKind::Kimi => {
+                let base_url = self
                     .base_url
                     .as_deref()
                     .unwrap_or(KIMI_BASE_URL)
                     .trim_end_matches('/')
-                    .to_owned(),
-            },
+                    .to_owned();
+                if !base_url.starts_with("https://") {
+                    return Err(
+                        "`base_url` must start with https:// (the API key is sent to it)".into(),
+                    );
+                }
+                Source::Kimi {
+                    api_key: required(self.api_key, "api_key")?,
+                    base_url,
+                }
+            }
             ProviderKind::Ollama => Source::Ollama(required(self.api_key, "api_key")?),
         })
     }
@@ -286,9 +300,15 @@ impl Config {
     ///
     /// [`ConfigError::Syntax`] or [`ConfigError::Entry`].
     pub fn parse(text: &str, path: &Path, home: Option<&Path>) -> Result<Self, ConfigError> {
-        let raw: RawConfig = toml::from_str(text).map_err(|e| ConfigError::Syntax {
-            path: path.to_path_buf(),
-            source: Box::new(e),
+        let raw: RawConfig = toml::from_str(text).map_err(|e| {
+            let at = e.span().map_or(0, |s| s.start).min(text.len());
+            let before = text.get(..at).unwrap_or_default();
+            ConfigError::Syntax {
+                path: path.to_path_buf(),
+                line: before.matches('\n').count() + 1,
+                column: before.rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1,
+                message: e.message().trim().to_owned(),
+            }
         })?;
         let mut ids = HashSet::new();
         let mut entries = Vec::with_capacity(raw.subscription.len());
@@ -509,7 +529,30 @@ mod tests {
         );
         assert!(msg("[[subscription]]\nprovider = \"kimi\"\nid = \"a\"\napi_key = \"k\"\n[[subscription]]\nprovider = \"ollama\"\nid = \"a\"\napi_key = \"k\"").contains("used twice"));
         assert!(msg("[[subscription]]\nprovider = \"bard\"").contains("unknown variant"));
+        assert!(
+            msg("[[subscription]]\nprovider = \"claude\"\naccess_token = \"\"")
+                .contains("`access_token` is required")
+        );
+        assert!(
+            msg("[[subscription]]\nprovider = \"kimi\"\napi_key = \"k\"\nbase_url = \"http://x\"")
+                .contains("https://")
+        );
         assert!(msg("[[subscription]]\nprovider = \"claude\"\ntypo = 1").contains("unknown field"));
+    }
+
+    #[test]
+    fn syntax_errors_do_not_echo_the_line() {
+        let err = parse(
+            "poll_seconds = 60\n[[subscription]]\nprovider = \"ollama\"\napikey = \"sk-secret\"\n",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(!err.contains("sk-secret"), "{err}");
+        assert!(err.contains(":4:1: unknown field `apikey`"), "{err}");
+        let err = parse("[[subscription]]\napi_key = \"sk-unclosed\n")
+            .unwrap_err()
+            .to_string();
+        assert!(!err.contains("sk-unclosed"), "{err}");
     }
 
     #[test]

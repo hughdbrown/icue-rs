@@ -32,6 +32,9 @@ use crate::http::{Http, UreqHttp};
 /// After a forced refresh, further forced refreshes within this time reuse its result.
 const MIN_FORCED_GAP: Duration = Duration::from_secs(15);
 
+/// Longest back-off honoured, whatever `Retry-After` says.
+const MAX_BACKOFF: Duration = Duration::from_hours(6);
+
 /// Back-off after a 429 that named no `Retry-After`.
 const DEFAULT_BACKOFF: Duration = Duration::from_secs(600);
 
@@ -248,7 +251,7 @@ fn record(
             if let FetchError::RateLimited { retry_after } = &e
                 && !waiting.contains_key(&entry.id)
             {
-                let wait = retry_after.unwrap_or(DEFAULT_BACKOFF);
+                let wait = retry_after.unwrap_or(DEFAULT_BACKOFF).min(MAX_BACKOFF);
                 let until = SignedDuration::try_from(wait)
                     .ok()
                     .and_then(|d| now.checked_add(d).ok())

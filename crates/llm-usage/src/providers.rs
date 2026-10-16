@@ -59,25 +59,30 @@ pub fn fetch(entry: &Entry, http: &dyn Http, now: Timestamp) -> Result<Usage, Fe
         Source::GeminiCookie(cookie) => {
             gemini::finish(&http.send(&gemini::request(cookie.expose()))?)
         }
-        Source::Kimi { api_key, base_url } => {
-            kimi::finish(&http.send(&kimi::request(base_url, api_key.expose()))?)
-        }
+        Source::Kimi { api_key, base_url } => kimi::finish(
+            base_url,
+            &http.send(&kimi::request(base_url, api_key.expose()))?,
+        ),
         Source::Ollama(key) => ollama::finish(&http.send(&ollama::request(key.expose()))?),
     }
 }
 
-/// Send with the stored token; on 401, once more with a refreshed one.
+/// Send with the stored token; on 401, once more with a refreshed one. A refreshed token that is
+/// still rejected is remembered, so later polls report the 401 instead of refreshing every time.
 fn with_token(
     token: impl Fn(Want) -> Result<Token, FetchError>,
     send: impl Fn(&Token) -> Result<Response, crate::http::NetworkError>,
 ) -> Result<(Token, Response), FetchError> {
     let t = token(Want::Valid)?;
     let r = send(&t)?;
-    if r.status != 401 {
+    if r.status != 401 || creds::was_rejected(&t.access) {
         return Ok((t, r));
     }
     let t = token(Want::Fresh)?;
     let r = send(&t)?;
+    if r.status == 401 {
+        creds::mark_rejected(&t.access);
+    }
     Ok((t, r))
 }
 
@@ -188,6 +193,39 @@ mod tests {
         );
         let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(saved["tokens"]["refresh_token"], "rt2");
+    }
+
+    #[test]
+    fn a_refreshed_token_that_is_still_rejected_is_not_refreshed_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.json");
+        let doc =
+            json!({"tokens": {"access_token": "old-r", "refresh_token": "rt", "account_id": "a"}});
+        std::fs::write(&path, doc.to_string()).unwrap();
+        let http = crate::http::fake::FakeHttp::default()
+            .reply(401, "")
+            .reply(200, r#"{"access_token":"new-r","refresh_token":"rt2"}"#)
+            .reply(401, "")
+            .reply(401, "");
+        let entry = Entry {
+            id: "codex".into(),
+            label: "Codex".into(),
+            source: Source::CodexAuthFile(path),
+        };
+        let now = "2026-10-16T12:00:00Z".parse().unwrap();
+        assert!(matches!(
+            fetch(&entry, &http, now),
+            Err(FetchError::SignInAgain(_))
+        ));
+        assert!(matches!(
+            fetch(&entry, &http, now),
+            Err(FetchError::SignInAgain(_))
+        ));
+        assert_eq!(
+            http.urls().len(),
+            4,
+            "usage, refresh, usage, usage: one refresh only"
+        );
     }
 
     #[test]
