@@ -2,6 +2,7 @@
 
 mod addin;
 mod approve;
+mod llm_usage;
 
 use std::path::{Path, PathBuf};
 
@@ -69,6 +70,8 @@ enum Command {
         #[command(subcommand)]
         command: addin::AddinCommand,
     },
+    /// Check the LLM subscriptions the LLM Usage widget shows, or create their config file.
+    LlmUsage(llm_usage::LlmUsageArgs),
     /// Run one widget folder on the XENEON EDGE, or in a scaled window when no Edge is attached.
     RunOne {
         /// Unpacked widget directory.
@@ -183,6 +186,7 @@ fn main() -> Result<()> {
         Command::Displays => displays(),
         Command::Layout { ref command } => layout(&store()?, command),
         Command::Addin { ref command } => addin::run(&store, command),
+        Command::LlmUsage(ref args) => llm_usage::run(args, cli.home.as_deref()),
         Command::RunOne {
             dir,
             slot,
