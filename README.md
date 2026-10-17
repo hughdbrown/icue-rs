@@ -164,6 +164,7 @@ node --test examples/widgets/portfolio/
 node --test examples/widgets/git/
 node --test examples/widgets/coin-ticker/
 node --test examples/widgets/llm-usage/
+node --test examples/widgets/roborev/
 ```
 
 `just ci` runs all of these (and every widget suite) plus `cargo fmt --check`.
@@ -183,6 +184,7 @@ node --test examples/widgets/llm-usage/
 | `examples/widgets/portfolio` | Stock portfolio value, chart and holdings (Yahoo Finance) |
 | `examples/widgets/warthunder-hud` | War Thunder flight/vehicle telemetry, kill feed and chat |
 | `examples/widgets/llm-usage` | Quota left, reset times and pace of Claude, Codex, Gemini, Kimi and Ollama subscriptions |
+| `examples/widgets/roborev` | Review queue, pass rate and latest verdicts from the local [roborev](https://github.com/kenn-io/roborev) daemon |
 | `examples/llm-usage/llm-usage.example.toml` | Commented subscriptions file for the LLM Usage widget (`edgectl llm-usage init`) |
 | `examples/widgets/*/README.md` | Each widget's description, settings and an EdgeHost screenshot |
 | `examples/addins/dev.edgehost.coin-prices` | Sample Rhai add-in: Coinbase spot prices as `window.plugins.Coinprices` |
