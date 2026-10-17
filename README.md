@@ -2,6 +2,12 @@
 
 Run iCUE HTML widgets on a CORSAIR XENEON EDGE connected to a Mac.
 
+![EdgeHost on a XENEON EDGE running the Roborev, Git Repository and LLM Usage widgets](docs/images/dashboard.png)
+
+*One page of a live EdgeHost dashboard (2560×720): [Roborev](examples/widgets/roborev),
+[Git Repository](examples/widgets/git) and [LLM Usage](examples/widgets/llm-usage), each in a
+Medium slot. The dots at the bottom are the page indicator; swipe to change pages.*
+
 Corsair's iCUE only drives the XENEON EDGE's widget dashboard on Windows; on macOS the Edge is a plain
 2560×720 monitor. EdgeHost hosts widgets written against the public
 [iCUE Widget API](https://docs.elgato.com/icue/widgets/) (1.9.0) on that display, and adds a
