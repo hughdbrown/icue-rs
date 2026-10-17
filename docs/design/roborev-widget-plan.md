@@ -71,4 +71,14 @@ default. If someone changes it, they edit the manifest.
 
 - Should tapping a job row open its `web_url` (`http://127.0.0.1:50051/reviews/<id>`)? That
   depends on EdgeHost letting a widget open a URL on the Mac; check the SPEC before promising it.
-- Check that `closed=false` really filters, and doesn't just return everything.
+- ~~Check that `closed=false` really filters~~ It does, but there are hundreds of open failing
+  reviews across history, so counting them per page isn't practical. Built (2026-10-17): open
+  fails = the summary's `verdicts.failed − verdicts.addressed` for the window.
+
+## As built (2026-10-17, commit ae14978)
+
+- `since` takes durations (`1d`, `7d`, `30d`, `720h`), not ISO timestamps. ISO gives a 400.
+- `repo=` needs the repo's root path. A name is resolved through `/api/repos`.
+- An empty summary leaves out `repos`. A false `closed` is left out of job rows.
+- The 14-day chart shows reviews per day (stacked passed/failed), built from 14 cumulative
+  `since=Nd` summaries. It's in L as well as XL, because L's side column was otherwise mostly empty.
