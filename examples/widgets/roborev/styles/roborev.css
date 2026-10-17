@@ -1,0 +1,513 @@
+:root {
+	--fg: #e8ecf2;
+	--accent: #8b7cff;
+	--pass: #3ddc84;
+	--fail: #ff5d5d;
+	--bg: #14161b;
+	--amber: #ffb020;
+	--muted: color-mix(in srgb, var(--fg) 55%, transparent);
+	--line: color-mix(in srgb, var(--fg) 12%, transparent);
+	--panel: color-mix(in srgb, var(--fg) 5%, var(--bg));
+}
+* {
+	box-sizing: border-box;
+}
+html,
+body {
+	margin: 0;
+	height: 100%;
+	overflow: hidden;
+	background: var(--bg);
+	color: var(--fg);
+	font: 20px/1.25 -apple-system, "Segoe UI", system-ui, sans-serif;
+	-webkit-user-select: none;
+	user-select: none;
+}
+[hidden] {
+	display: none !important;
+}
+
+/* ── Layout: M (840×696, 696×840) is the base ───────────────────────── */
+#dash {
+	height: 100%;
+	padding: 16px;
+	display: grid;
+	gap: 14px;
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: auto auto minmax(0, 1fr);
+	grid-template-areas: "top" "banner" "jobs";
+}
+#top {
+	grid-area: top;
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	grid-template-rows: 1fr auto;
+	grid-template-areas: "ring tiles" "ring meta";
+	gap: 10px 20px;
+	align-items: center;
+}
+#banner {
+	grid-area: banner;
+	padding: 8px 14px;
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--amber) 18%, var(--bg));
+	color: var(--amber);
+	font-weight: 600;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+#dash[data-level="error"] #banner {
+	background: color-mix(in srgb, var(--fail) 18%, var(--bg));
+	color: var(--fail);
+}
+#jobs {
+	grid-area: jobs;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	min-height: 0;
+	overflow: hidden;
+}
+#side {
+	display: none;
+}
+
+/* ── Pass-rate ring ─────────────────────────────────────────────────── */
+#ring {
+	grid-area: ring;
+	position: relative;
+	width: 250px;
+	height: 250px;
+}
+#ring svg {
+	width: 100%;
+	height: 100%;
+	transform: rotate(-90deg);
+}
+#ring circle {
+	fill: none;
+	stroke-width: 11;
+}
+#ring .track {
+	stroke: color-mix(in srgb, var(--fail) 35%, var(--bg));
+}
+#ring .fill {
+	stroke: var(--pass);
+	stroke-linecap: round;
+	stroke-dasharray: 0 327;
+	transition: stroke-dasharray 0.6s ease;
+}
+#ring-text {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+}
+#rate {
+	font-size: 64px;
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+	line-height: 1;
+}
+#rate-label {
+	margin-top: 6px;
+	font-size: 17px;
+	color: var(--muted);
+}
+
+/* ── Tiles and meta line ────────────────────────────────────────────── */
+#tiles {
+	grid-area: tiles;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 10px;
+}
+.tile {
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 12px;
+	padding: 10px 14px;
+	display: flex;
+	flex-direction: column;
+}
+.tile .v {
+	font-size: 40px;
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+	line-height: 1.05;
+}
+.tile .k {
+	font-size: 16px;
+	color: var(--muted);
+}
+.tile.alert {
+	border-color: color-mix(in srgb, var(--fail) 60%, transparent);
+}
+.tile.alert .v {
+	color: var(--fail);
+}
+#meta {
+	grid-area: meta;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	font-size: 16px;
+	color: var(--muted);
+	white-space: nowrap;
+	overflow: hidden;
+}
+#updated {
+	margin-left: auto;
+}
+#dot {
+	flex: none;
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	background: var(--pass);
+}
+#dash[data-level="paused"] #dot {
+	background: var(--amber);
+}
+#dash[data-level="error"] #dot {
+	background: var(--fail);
+}
+
+/* ── Job rows ───────────────────────────────────────────────────────── */
+.job {
+	display: grid;
+	grid-template-columns: 78px minmax(0, 150px) minmax(0, 1fr) auto;
+	gap: 12px;
+	align-items: center;
+	padding: 6px 10px;
+	border-radius: 10px;
+	background: var(--panel);
+	font-size: 18px;
+}
+.job .chip {
+	text-align: center;
+	font-size: 13px;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	padding: 3px 0;
+	border-radius: 6px;
+	background: var(--line);
+	color: var(--muted);
+}
+.job.state-pass .chip {
+	background: color-mix(in srgb, var(--pass) 22%, transparent);
+	color: var(--pass);
+}
+.job.state-fail .chip,
+.job.state-error .chip {
+	background: color-mix(in srgb, var(--fail) 22%, transparent);
+	color: var(--fail);
+}
+.job.state-running .chip {
+	background: color-mix(in srgb, var(--accent) 28%, transparent);
+	color: var(--accent);
+	animation: pulse 1.4s ease-in-out infinite;
+}
+.job.state-queued .chip {
+	color: var(--amber);
+}
+.job.closed {
+	opacity: 0.55;
+}
+.job .repo {
+	color: var(--accent);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.job .subject {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.job .age {
+	color: var(--muted);
+	font-size: 15px;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+.empty {
+	color: var(--muted);
+	padding: 10px;
+}
+@keyframes pulse {
+	50% {
+		opacity: 0.45;
+	}
+}
+
+/* ── Side panels (L / XL) ───────────────────────────────────────────── */
+.panel {
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 14px;
+	padding: 12px 16px;
+	min-height: 0;
+	overflow: hidden;
+}
+.panel h2 {
+	margin: 0 0 8px;
+	font-size: 15px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--muted);
+}
+.panel h2 .cols {
+	float: right;
+	text-transform: none;
+	letter-spacing: 0;
+	font-weight: 400;
+}
+.repo-row {
+	display: grid;
+	grid-template-columns: minmax(0, 170px) minmax(0, 1fr) 70px;
+	gap: 12px;
+	align-items: center;
+	font-size: 17px;
+	padding: 3px 0;
+}
+.repo-row .name {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.repo-row .bar {
+	display: flex;
+	height: 12px;
+	border-radius: 6px;
+	overflow: hidden;
+	background: var(--line);
+}
+.repo-row .pass {
+	background: var(--pass);
+}
+.repo-row .fail {
+	background: var(--fail);
+}
+.repo-row .count {
+	text-align: right;
+	color: var(--muted);
+	font-variant-numeric: tabular-nums;
+}
+#stats {
+	display: flex;
+	justify-content: space-around;
+	text-align: center;
+}
+#stats div {
+	display: flex;
+	flex-direction: column;
+}
+#stats .v {
+	font-size: 30px;
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+}
+#stats .k {
+	font-size: 15px;
+	color: var(--muted);
+}
+.agent-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 70px 70px 80px;
+	gap: 10px;
+	font-size: 17px;
+	padding: 2px 0;
+}
+.agent-row .n {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+	color: var(--muted);
+}
+#daily-panel {
+	display: none;
+}
+#daily {
+	height: calc(100% - 52px);
+	min-height: 80px;
+	display: flex;
+	align-items: flex-end;
+	gap: 6px;
+}
+.day {
+	flex: 1;
+	height: 100%;
+	display: flex;
+	align-items: flex-end;
+	border-bottom: 2px solid var(--line);
+}
+.day {
+	flex-direction: column;
+	justify-content: flex-end;
+	align-items: stretch;
+}
+.day .n {
+	text-align: center;
+	font-size: 13px;
+	color: var(--muted);
+	font-variant-numeric: tabular-nums;
+}
+#daily-axis {
+	display: flex;
+	justify-content: space-between;
+	margin-top: 4px;
+	font-size: 13px;
+	color: var(--muted);
+}
+.day .stack {
+	display: flex;
+	flex-direction: column;
+	border-radius: 4px 4px 0 0;
+	overflow: hidden;
+}
+.day .stack .pass {
+	background: var(--pass);
+}
+.day .stack .fail {
+	background: var(--fail);
+}
+
+/* ── Message (daemon down, connecting, bad setting) ─────────────────── */
+#message {
+	height: 100%;
+	padding: 24px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	text-align: center;
+	gap: 12px;
+}
+#message-title {
+	font-size: 34px;
+	font-weight: 700;
+	color: var(--accent);
+}
+#message-detail {
+	font-size: 20px;
+	color: var(--muted);
+	max-width: 720px;
+}
+
+/* ── S (840×344, 696×416): ring and tiles only ──────────────────────── */
+@media (max-height: 420px) {
+	#dash {
+		padding: 12px;
+		grid-template-rows: minmax(0, 1fr) auto;
+		grid-template-areas: "top" "banner";
+		gap: 8px;
+	}
+	#jobs {
+		display: none;
+	}
+	#top {
+		grid-template-rows: auto auto;
+		align-content: center;
+	}
+	#ring {
+		width: 230px;
+		height: 230px;
+	}
+	#rate {
+		font-size: 56px;
+	}
+	.tile .v {
+		font-size: 34px;
+	}
+	#banner {
+		padding: 4px 10px;
+		font-size: 16px;
+	}
+}
+
+/* ── M portrait (696×840): narrower rows ────────────────────────────── */
+@media (max-width: 800px) {
+	#ring {
+		width: 220px;
+		height: 220px;
+	}
+	.job {
+		grid-template-columns: 70px minmax(0, 120px) minmax(0, 1fr) auto;
+	}
+}
+
+/* ── L / XL landscape (1688×696, 2536×696): side panels on the right ── */
+@media (min-width: 1500px) and (min-height: 421px) {
+	#dash {
+		grid-template-columns: 820px minmax(0, 1fr);
+		grid-template-areas: "top side" "banner side" "jobs side";
+	}
+	#side {
+		grid-area: side;
+		display: grid;
+		gap: 14px;
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: auto minmax(0, 1fr) auto auto;
+		grid-template-areas: "repos" "daily" "stats" "agents";
+		min-height: 0;
+	}
+	#repos-panel {
+		grid-area: repos;
+		max-height: 250px;
+	}
+	#daily-panel {
+		display: block;
+		grid-area: daily;
+	}
+	#stats {
+		grid-area: stats;
+	}
+	#agents-panel {
+		grid-area: agents;
+	}
+}
+
+/* ── XL landscape: the 14-day chart gets its own column ─────────────── */
+@media (min-width: 2400px) {
+	#side {
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		grid-template-rows: minmax(0, 1fr) auto auto;
+		grid-template-areas: "repos daily" "stats daily" "agents daily";
+	}
+	#repos-panel {
+		max-height: none;
+	}
+}
+
+/* ── L / XL portrait (696×1688, 696×2536): panels stacked below ─────── */
+@media (max-width: 800px) and (min-height: 1500px) {
+	#dash {
+		grid-template-rows: auto auto minmax(0, 1fr) auto;
+		grid-template-areas: "top" "banner" "jobs" "side";
+	}
+	#top {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: auto auto auto;
+		grid-template-areas: "ring" "tiles" "meta";
+		justify-items: center;
+	}
+	#tiles {
+		width: 100%;
+	}
+	#side {
+		grid-area: side;
+		display: flex;
+		flex-direction: column;
+		gap: 14px;
+	}
+}
+@media (max-width: 800px) and (min-height: 1500px) {
+	#daily-panel {
+		display: block;
+		height: 240px;
+	}
+}

@@ -1,0 +1,14 @@
+{
+	"author": "EdgeHost",
+	"id": "dev.edgehost.roborev",
+	"name": "Roborev",
+	"description": "Review queue, pass rate and latest verdicts from the local roborev daemon (127.0.0.1:7373).",
+	"version": "0.1.0",
+	"preview_icon": "resources/icon.svg",
+	"min_app_version": "5.47",
+	"min_framework_version": "1.0.0",
+	"os": [{ "platform": "windows" }, { "platform": "mac" }],
+	"supported_devices": [{ "type": "dashboard_lcd" }],
+	"interactive": false,
+	"permissions": [{ "type": "url", "domain": "127.0.0.1", "port": 7373 }]
+}

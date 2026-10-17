@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>tr('Roborev')</title>
+		<link rel="icon" type="image/svg+xml" href="resources/icon.svg" />
+		<meta name="x-icue-property" content="repoFilter" data-label="tr('Repository (name or folder; empty = all)')" data-type="textfield" data-default="''" />
+		<meta name="x-icue-property" content="timeWindow" data-label="tr('Window')" data-type="tab-buttons" data-default="'7d'" data-values="[{'key':'1d','value':tr('24 h')},{'key':'7d','value':tr('7 days')},{'key':'30d','value':tr('30 days')}]" />
+		<meta name="x-icue-property" content="textColor" data-label="tr('Text Color')" data-type="color" data-default="'#E8ECF2'" />
+		<meta name="x-icue-property" content="accentColor" data-label="tr('Accent Color')" data-type="color" data-default="'#8B7CFF'" />
+		<meta name="x-icue-property" content="passColor" data-label="tr('Pass Color')" data-type="color" data-default="'#3DDC84'" />
+		<meta name="x-icue-property" content="failColor" data-label="tr('Fail Color')" data-type="color" data-default="'#FF5D5D'" />
+		<meta name="x-icue-property" content="backgroundColor" data-label="tr('Background Color')" data-type="color" data-default="'#14161B'" />
+		<script type="application/json" id="x-icue-groups">
+			[
+				{ "title": "tr('Reviews')", "properties": ["repoFilter", "timeWindow"] },
+				{ "title": "tr('Appearance')", "properties": ["textColor", "accentColor", "passColor", "failColor", "backgroundColor"] }
+			]
+		</script>
+		<link rel="stylesheet" href="styles/roborev.css" />
+	</head>
+	<body>
+		<main id="dash" hidden>
+			<header id="top">
+				<div id="ring">
+					<svg viewBox="0 0 120 120" aria-hidden="true">
+						<circle class="track" cx="60" cy="60" r="52" />
+						<circle id="ring-fill" class="fill" cx="60" cy="60" r="52" />
+					</svg>
+					<div id="ring-text">
+						<div id="rate">–</div>
+						<div id="rate-label"></div>
+					</div>
+				</div>
+				<div id="tiles">
+					<div class="tile" id="fails-tile"><span class="v" id="fails">0</span><span class="k">open fails</span></div>
+					<div class="tile"><span class="v" id="running">0</span><span class="k">running</span></div>
+					<div class="tile"><span class="v" id="queued">0</span><span class="k">queued</span></div>
+					<div class="tile"><span class="v" id="workers">0/0</span><span class="k">workers</span></div>
+				</div>
+				<div id="meta">
+					<span id="dot"></span>
+					<span id="reviewed"></span>
+					<span id="updated"></span>
+				</div>
+			</header>
+			<div id="banner" hidden></div>
+			<section id="jobs"></section>
+			<aside id="side">
+				<div class="panel" id="repos-panel">
+					<h2>Repositories</h2>
+					<div id="repos"></div>
+				</div>
+				<div class="panel" id="stats">
+					<div><span class="k">review p50</span><span class="v" id="p50">–</span></div>
+					<div><span class="k">p90</span><span class="v" id="p90">–</span></div>
+					<div><span class="k">cost</span><span class="v" id="cost">–</span></div>
+				</div>
+				<div class="panel" id="agents-panel">
+					<h2>Agents <span class="cols">reviews · pass · median</span></h2>
+					<div id="agents"></div>
+				</div>
+				<div class="panel" id="daily-panel">
+					<h2>Reviews per day, last 14 days <span class="cols">passed · failed</span></h2>
+					<div id="daily"></div>
+					<div id="daily-axis"><span>14 days ago</span><span>today</span></div>
+				</div>
+			</aside>
+		</main>
+		<section id="message">
+			<div id="message-title">Starting…</div>
+			<div id="message-detail"></div>
+		</section>
+		<script src="scripts/roborev-model.js"></script>
+		<script src="scripts/roborev.js"></script>
+	</body>
+</html>

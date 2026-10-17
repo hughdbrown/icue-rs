@@ -1,0 +1,19 @@
+{
+	"en": {
+		"translation": {
+			"Roborev": "Roborev",
+			"Reviews": "Reviews",
+			"Repository (name or folder; empty = all)": "Repository (name or folder; empty = all)",
+			"Window": "Window",
+			"24 h": "24 h",
+			"7 days": "7 days",
+			"30 days": "30 days",
+			"Appearance": "Appearance",
+			"Text Color": "Text Color",
+			"Accent Color": "Accent Color",
+			"Pass Color": "Pass Color",
+			"Fail Color": "Fail Color",
+			"Background Color": "Background Color"
+		}
+	}
+}
